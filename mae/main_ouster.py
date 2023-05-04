@@ -57,6 +57,7 @@ def get_args_parser():
     parser.add_argument('--norm_pix_loss', action='store_true',
                         help='Use (per-patch) normalized pixels as targets for computing loss')
     parser.set_defaults(norm_pix_loss=False)
+    parser.add_argument('--use_cls_token', action='store_true', help="Use CLS token in embedding")
 
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
@@ -108,6 +109,7 @@ def get_args_parser():
     parser.add_argument('--project_name', type = str, default = "Ouster_MAE")
 
     parser.add_argument('--eval', action='store_true', help="evaluation")
+    
     
     return parser
 
