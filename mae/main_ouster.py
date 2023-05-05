@@ -132,10 +132,11 @@ def main(args):
 
     cudnn.benchmark = True
 
-    transform_train = transform_test = transforms.ToTensor()
+    transform_train = transform_test = transforms.Compose([transforms.ToTensor(), transforms.Grayscale()]) 
     dataset_train = ImageDataset(os.path.join(args.data_path, 'train'), transform=transform_train)
     dataset_val = ImageDataset(os.path.join(args.data_path, 'val'), transform=transform_test)
-    print(dataset_train)
+    
+    print(f"There are totally {len(dataset_train)} training data and {len(dataset_val)} validation data")
 
 
     
@@ -169,8 +170,6 @@ def main(args):
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
         log_writer = SummaryWriter(log_dir=args.log_dir)
-        print(num_tasks)
-        print(global_rank)
     else:
         log_writer = None
 
@@ -191,12 +190,12 @@ def main(args):
     )
     
     # define the model
-    model = models_mae.__dict__[args.model](norm_pix_loss=args.norm_pix_loss)
+    model = models_mae.__dict__[args.model](norm_pix_loss=args.norm_pix_loss, use_cls_token=args.use_cls_token)
 
     model.to(device)
 
     model_without_ddp = model
-    print("Model = %s" % str(model_without_ddp))
+    # print("Model = %s" % str(model_without_ddp))
 
     eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
     

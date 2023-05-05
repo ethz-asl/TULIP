@@ -22,7 +22,7 @@ def build_dataset(is_train, args):
     if args.transform:
         transform = build_transform(is_train, args)
     else:
-        transform = transforms.ToTensor()
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Grayscale()]) 
 
     root = os.path.join(args.data_path, 'train' if is_train else 'val')
     #dataset = datasets.ImageFolder(root, transform=transform)

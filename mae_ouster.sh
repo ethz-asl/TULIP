@@ -8,22 +8,18 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 args=(
     --batch_size 4
-    --epochs 1
+    --epochs 400
     --model mae_vit_base_patch16
-    --data_path /cluster/work/riner/users/biyang/dataset/depth_test_colored/
-    # --input_size 
-    # Dataset parameters
-    # --local_rank 2
-    # --world_size 8
-    --pin_mem
+    --data_path /cluster/work/riner/users/biyang/dataset/depth_middle/
     --entity biyang
     --project_name Ouster_MAE
     --eval
-    # --output_dir ./experiment_patchsize1632
+    --output_dir ./experiment_5000imgs_useclstoken
     # --wandb_disabled
-    --mask_ratio 0.25
+    --mask_ratio 0.75
+    --use_cls_token
     )
 
 # python mae/main_ouster.py "${args[@]}"   
 #python -m torch.distributed.launch --nproc_per_node=2 mae/main_ouster.py "${args[@]}"
-torchrun --nproc_per_node=2 mae/main_ouster.py "${args[@]}"
+torchrun --nproc_per_node=4 mae/main_ouster.py "${args[@]}"
