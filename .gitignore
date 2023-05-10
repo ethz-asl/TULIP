@@ -1,5 +1,4 @@
 /experiment*
-/MultiMAE
 /dataset
 /*/__pycache__
 /*/*__pycache__
@@ -8,3 +7,4 @@
 /output_dir
 durlar_tools.zip
 slurm*
+/output

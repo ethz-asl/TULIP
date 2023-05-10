@@ -8,7 +8,7 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 args=(
     --batch_size 4
-    --epochs 400
+    --epochs 200
     --model mae_vit_base_patch16
     --data_path /cluster/work/riner/users/biyang/dataset/depth_middle/
     --entity biyang
