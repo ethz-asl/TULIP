@@ -1,4 +1,5 @@
-/experiment*
+/*experiment*
+/pretrain*
 /dataset
 /*/__pycache__
 /*/*__pycache__

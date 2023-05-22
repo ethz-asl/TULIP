@@ -21,16 +21,20 @@ import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+from util.datasets import build_dataset
+from util.pos_embed import interpolate_pos_embed
 
 import timm
 
 # assert timm.__version__ == "0.3.2"  # version check
 import timm.optim.optim_factory as optim_factory
+from timm.models.layers import trunc_normal_
 
 import util.misc as misc
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
 import models_mae
+import swin_mae
 from timm.data.dataset import ImageDataset
 from engine_pretrain import train_one_epoch, evaluate
 import wandb
@@ -44,7 +48,21 @@ def get_args_parser():
     parser.add_argument('--accum_iter', default=1, type=int,
                         help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
 
+
+    # Pretrain parameters (MAE)
+    parser.add_argument('--pretrain', default=None, type=str,
+                        help='full path of pretrain model')
+    parser.add_argument('--use_cls_token', action='store_true', help="Use CLS token in embedding")
+
+    # Swin MAE parameters
+    parser.add_argument('--window_size', default=7, type=int,
+                        help='size of window partition')
+
+
     # Model parameters
+    parser.add_argument('--model_select', default='mae', type=str,
+                        choices=['mae', 'swin_mae'])
+    
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
                         help='Name of model to train')
 
@@ -57,8 +75,7 @@ def get_args_parser():
     parser.add_argument('--norm_pix_loss', action='store_true',
                         help='Use (per-patch) normalized pixels as targets for computing loss')
     parser.set_defaults(norm_pix_loss=False)
-    parser.add_argument('--use_cls_token', action='store_true', help="Use CLS token in embedding")
-
+    
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
                         help='weight decay (default: 0.05)')
@@ -72,8 +89,31 @@ def get_args_parser():
 
     parser.add_argument('--warmup_epochs', type=int, default=40, metavar='N',
                         help='epochs to warmup LR')
+    
+    
+    # Augmentation parameters
+    parser.add_argument('--color_jitter', type=float, default=None, metavar='PCT',
+                        help='Color jitter factor (enabled only when not using Auto/RandAug)')
+    parser.add_argument('--aa', type=str, default='rand-m9-mstd0.5-inc1', metavar='NAME',
+                        help='Use AutoAugment policy. "v0" or "original". " + "(default: rand-m9-mstd0.5-inc1)'),
+    parser.add_argument('--smoothing', type=float, default=0.1,
+                        help='Label smoothing (default: 0.1)')
+    
+     # * Random Erase params
+    parser.add_argument('--reprob', type=float, default=0.25, metavar='PCT',
+                        help='Random erase prob (default: 0.25)')
+    parser.add_argument('--remode', type=str, default='pixel',
+                        help='Random erase mode (default: "pixel")')
+    parser.add_argument('--recount', type=int, default=1,
+                        help='Random erase count (default: 1)')
+    parser.add_argument('--resplit', action='store_true', default=False,
+                        help='Do not random erase first (clean) augmentation split')
 
     # Dataset parameters
+    parser.add_argument('--gray_scale', action="store_true", help='use gray scale imgae')
+    parser.add_argument('--imagenet', action="store_true", help='use imagenet for test')
+    parser.add_argument('--img_size', nargs="+", type=int, help='image size, given in format h w')
+    parser.add_argument('--in_chans', type=int, default = 1, help='number of channels')
     parser.add_argument('--data_path', default='/datasets01/imagenet_full_size/061417/', type=str,
                         help='dataset path')
 
@@ -107,6 +147,7 @@ def get_args_parser():
     parser.add_argument('--wandb_disabled', action='store_true', help="disable wandb")
     parser.add_argument('--entity', type = str, default = "biyang")
     parser.add_argument('--project_name', type = str, default = "Ouster_MAE")
+    parser.add_argument('--run_name', type = str, default = None)
 
     parser.add_argument('--eval', action='store_true', help="evaluation")
     
@@ -132,10 +173,14 @@ def main(args):
 
     cudnn.benchmark = True
 
-    transform_train = transform_test = transforms.Compose([transforms.ToTensor(), transforms.Grayscale()]) 
-    dataset_train = ImageDataset(os.path.join(args.data_path, 'train'), transform=transform_train)
-    dataset_val = ImageDataset(os.path.join(args.data_path, 'val'), transform=transform_test)
-    
+    if args.imagenet:
+        dataset_train = build_dataset(is_train=True, args=args)
+        dataset_val = build_dataset(is_train=False, args=args)
+    else:
+        transform_train = transform_test = transforms.Compose([transforms.ToTensor(), transforms.Grayscale()]) 
+        dataset_train = ImageDataset(os.path.join(args.data_path, 'train'), transform=transform_train)
+        dataset_val = ImageDataset(os.path.join(args.data_path, 'val'), transform=transform_test)
+        
     print(f"There are totally {len(dataset_train)} training data and {len(dataset_val)} validation data")
 
 
@@ -164,6 +209,7 @@ def main(args):
             mode = "online"
         wandb.init(project=args.project_name,
                     entity=args.entity,
+                    name = args.run_name, 
                     mode=mode,
                     sync_tensorboard=True)
         wandb.config.update(args)
@@ -190,7 +236,30 @@ def main(args):
     )
     
     # define the model
-    model = models_mae.__dict__[args.model](norm_pix_loss=args.norm_pix_loss, use_cls_token=args.use_cls_token)
+    if args.model_select == "mae":
+        model = models_mae.__dict__[args.model](img_size = tuple(args.img_size),
+                                                in_chans = args.in_chans, 
+                                                norm_pix_loss=args.norm_pix_loss, 
+                                                use_cls_token=args.use_cls_token)
+    elif args.model_select == "swin_mae":
+        model = swin_mae.__dict__[args.model_select](img_size = tuple(args.img_size),
+                                                     norm_pix_loss=args.norm_pix_loss,
+                                                     in_chans = args.in_chans)
+        
+    # Load pretrained model
+    if args.pretrain is not None:
+        pretrain = torch.load(args.pretrain, map_location='cpu')
+
+        print("Load pre-trained checkpoint from: %s" % args.pretrain)
+        pretrain_model = pretrain['model']
+
+        msg = model.load_state_dict(pretrain_model, strict=False)
+        print(msg)
+
+        # Freeze the parameters in pretrain model
+        for name, p in model.named_parameters():
+            if name in list(pretrain_model.keys()):
+                p.requires_grad = False
 
     model.to(device)
 
@@ -260,6 +329,8 @@ def main(args):
 if __name__ == '__main__':
     args = get_args_parser()
     args = args.parse_args()
+    # if args.img_size is not None:
+    #     args.img_size = tuple(args.img_size)
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)

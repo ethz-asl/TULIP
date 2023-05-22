@@ -675,25 +675,23 @@ def evaluate(model: torch.nn.Module, data_loader: Iterable, tasks_loss_fn: Dict[
             loss = sum(weighted_task_losses.values())
 
         loss_value = sum(task_losses.values()).item()
-        task_loss_values = {f'{task}_loss': l.item() for task, l in task_losses.items()}
-        weighted_task_loss_values = {f'{task}_loss_weighted': l.item() for task, l in weighted_task_losses.items()}
+        task_loss_values = {f'Test/{task}_loss': l.item() for task, l in task_losses.items()}
+        weighted_task_loss_values = {f'Test/{task}_loss_weighted': l.item() for task, l in weighted_task_losses.items()}
 
         
-
         if log_writer is not None:
-            # for task, pred in preds.items():
-            #     gt = input_dict[task]
-            #     masked_input = masked_inputs[task]
-            #     vis_grid = make_grid(torch.cat([gt, pred, masked_input], dim = 0), nrow=1)
-            #     log_writer.update_img(vis_grid, caption="gt - pred - mask", title = task)
+            for task, pred in preds.items():
+                gt = input_dict[task]
+                masked_input = masked_inputs[task]
+                vis_grid = make_grid(torch.cat([gt, pred, masked_input], dim = 0), nrow=1)
+                log_writer.update_img(vis_grid, caption="gt - pred - mask", title = task)
 
             log_writer.update({
-                    'loss': loss_value,})
+                    'Test/loss': loss_value,})
             log_writer.update(task_loss_values)
             log_writer.update(weighted_task_loss_values)
             log_writer.set_step()
-    metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    
     
 
 

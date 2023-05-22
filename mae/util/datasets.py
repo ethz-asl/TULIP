@@ -19,16 +19,13 @@ from timm.data.dataset import ImageDataset
 
 
 def build_dataset(is_train, args):
-    if args.transform:
-        transform = build_transform(is_train, args)
-    else:
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Grayscale()]) 
+    # if args.transform:
+    transform = build_transform(is_train, args)
+    if args.gray_scale:
+        transform = transforms.Compose([transform, transforms.Grayscale(num_output_channels=1)])
 
     root = os.path.join(args.data_path, 'train' if is_train else 'val')
-    #dataset = datasets.ImageFolder(root, transform=transform)
     dataset = ImageDataset(root, transform=transform)
-
-    print(dataset)
 
     return dataset
 
@@ -66,5 +63,6 @@ def build_transform(is_train, args):
     t.append(transforms.CenterCrop(args.input_size))
 
     t.append(transforms.ToTensor())
-    t.append(transforms.Normalize(mean, std))
+    
+    # t.append(transforms.Normalize(mean, std))
     return transforms.Compose(t)

@@ -7,19 +7,20 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 
 args=(
-    --batch_size 4
+    --batch_size 16
     --epochs 100
     # Model parameters
     --model_select mae
     --model mae_vit_base_patch16
-    --pretrain "/cluster/work/riner/users/biyang/pretrained_mae/mae_pretrain_vit_base.pth"
+    # --pretrain "/cluster/work/riner/users/biyang/pretrained_mae/mae_pretrain_vit_base.pth"
     # Dataset
     --data_path /cluster/work/riner/users/biyang/dataset/imagenet-mini/
     # WandB Parameters
+    --run_name mae_full_dataset_025
     --entity biyang
     --project_name TestMAE
     --eval
-    --output_dir ./mae_test
+    --output_dir ./experiment/mae_test_large_075_noclstoken_nopretrain
     # --wandb_disabled
     --mask_ratio 0.75
     --use_cls_token
@@ -28,8 +29,8 @@ args=(
     --input_size 224
     # Image Net parameters
     --imagenet
-    --in_chans 1
-    --gray_scale
+    --in_chans 3
+    # --gray_scale
     )
 
 # python mae/main_ouster.py "${args[@]}"   

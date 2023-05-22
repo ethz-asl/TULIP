@@ -98,9 +98,9 @@ def evaluate(data_loader, model, device, log_writer, args=None):
     # iterator = iter(data_loader)
     for batch in data_loader:
         images = batch[0]
-        target = batch[-1]
+        # target = batch[-1]
         images = images.to(device, non_blocking=True)
-        target = target.to(device, non_blocking=True)
+        # target = target.to(device, non_blocking=True)
         global_step += 1
 
         # compute output
