@@ -21,7 +21,7 @@ import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from util.datasets import build_dataset
+from util.datasets import build_dataset, build_durlar_dataset, build_depth_intensity_dataset
 from util.pos_embed import interpolate_pos_embed
 
 import timm
@@ -57,6 +57,7 @@ def get_args_parser():
     # Swin MAE parameters
     parser.add_argument('--window_size', default=7, type=int,
                         help='size of window partition')
+    parser.add_argument('--patch_size', nargs="+", type=int, help='image size, given in format h w')
 
 
     # Model parameters
@@ -116,7 +117,13 @@ def get_args_parser():
     parser.add_argument('--in_chans', type=int, default = 1, help='number of channels')
     parser.add_argument('--data_path', default='/datasets01/imagenet_full_size/061417/', type=str,
                         help='dataset path')
+    
+    # Durlar dataset parameters
+    parser.add_argument('--crop', action="store_true", help='crop the image to 128 x 128 (default)')
+    parser.add_argument('--mask_loss', action="store_true", help='Mask the loss value with no LiDAR return')
+    parser.add_argument('--use_intensity', action="store_true", help='use the intensity as the second channel')
 
+    # Training parameters
     parser.add_argument('--output_dir', default='./output_dir',
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default='./output_dir',
@@ -177,9 +184,12 @@ def main(args):
         dataset_train = build_dataset(is_train=True, args=args)
         dataset_val = build_dataset(is_train=False, args=args)
     else:
-        transform_train = transform_test = transforms.Compose([transforms.ToTensor(), transforms.Grayscale()]) 
-        dataset_train = ImageDataset(os.path.join(args.data_path, 'train'), transform=transform_train)
-        dataset_val = ImageDataset(os.path.join(args.data_path, 'val'), transform=transform_test)
+        if args.use_intensity:
+            dataset_train = build_depth_intensity_dataset(is_train=True, args=args)
+            dataset_val = build_depth_intensity_dataset(is_train=False, args=args)
+        else:
+            dataset_train = build_durlar_dataset(is_train=True, args=args)
+            dataset_val = build_durlar_dataset(is_train=False, args=args)
         
     print(f"There are totally {len(dataset_train)} training data and {len(dataset_val)} validation data")
 
@@ -243,8 +253,10 @@ def main(args):
                                                 use_cls_token=args.use_cls_token)
     elif args.model_select == "swin_mae":
         model = swin_mae.__dict__[args.model_select](img_size = tuple(args.img_size),
+                                                     patch_size = tuple(args.patch_size), 
                                                      norm_pix_loss=args.norm_pix_loss,
-                                                     in_chans = args.in_chans)
+                                                     in_chans = args.in_chans,
+                                                     window_size = args.window_size,)
         
     # Load pretrained model
     if args.pretrain is not None:
@@ -278,7 +290,7 @@ def main(args):
     print("effective batch size: %d" % eff_batch_size)
 
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=False)
         model_without_ddp = model.module
     
     # following timm: set wd as 0 for bias and norm layers
@@ -331,6 +343,10 @@ if __name__ == '__main__':
     args = args.parse_args()
     # if args.img_size is not None:
     #     args.img_size = tuple(args.img_size)
+
+    # Pre-Check
+    if args.use_intensity:
+        assert args.in_chans > 1
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)

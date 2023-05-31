@@ -46,7 +46,7 @@ def train_one_epoch(model: torch.nn.Module,
         samples = samples.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():
-            loss, _, _ = model(samples, mask_ratio=args.mask_ratio)
+            loss, _, _ = model(samples, mask_ratio=args.mask_ratio, mask_loss = args.mask_loss)
 
         loss_value = loss.item()
 
@@ -97,25 +97,29 @@ def evaluate(data_loader, model, device, log_writer, args=None):
     total_loss = 0
     # iterator = iter(data_loader)
     for batch in data_loader:
-        images = batch[0]
+        images = batch[0] # (B=1, C, H, W)
         # target = batch[-1]
         images = images.to(device, non_blocking=True)
         # target = target.to(device, non_blocking=True)
         global_step += 1
-
         # compute output
         with torch.cuda.amp.autocast():
-            output = model(images, mask_ratio = args.mask_ratio) # --> tuple(loss, pred_imgs, masked_imgs)
+            output = model(images, mask_ratio = args.mask_ratio, mask_loss = args.mask_loss, eval = True) # --> tuple(loss, pred_imgs, masked_imgs)
             loss = output[0]
-            pred_img = output[1] # (B=1, H, W, C)
-            masked_img = output[2] # (B=1, N_MASK) B: Batch Size, N_MASK: Number of masks H*W/(patch_size*patch_size)
+            pred_img = output[1] # (B=1, C, H, W)
+            masked_img = output[2] # (B=1, C, H, W) B: Batch Size, N_MASK: Number of masks H*W/(patch_size*patch_size)
 
             # loss = criterion(output[1], target)
-
         if log_writer is not None:
+            if args.use_intensity and args.in_chans == 2:
+                vis_grid = make_grid([images[:, 0], pred_img[:, 0], masked_img[:, 0],
+                                    images[:, 1], pred_img[:, 1], masked_img[:, 1]], nrow=3, ncol=2)
+                log_writer.add_image('depth+intensity: gt - pred - mask', vis_grid, global_step)
+            else:
+                vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
+                log_writer.add_image('gt - pred - mask', vis_grid, global_step)
             log_writer.add_scalar('Loss/test', loss.item(), global_step)
-            vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
-            log_writer.add_image('gt - pred - mask', vis_grid, global_step)
+            
         total_loss += loss.item()
     
     # results = {k: meter.global_avg for k, meter in metric_logger.meters.items()}

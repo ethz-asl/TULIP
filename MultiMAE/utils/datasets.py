@@ -117,11 +117,12 @@ class DataAugmentationForMultiMAE(object):
         return repr
     
 class OusterForMultiMAE(object):
-    def __init__(self, args):
+    def __init__(self, args, is_train = False):
         imagenet_default_mean_and_std = args.imagenet_default_mean_and_std
         self.rgb_mean = IMAGENET_INCEPTION_MEAN if not imagenet_default_mean_and_std else IMAGENET_DEFAULT_MEAN
         self.rgb_std = IMAGENET_INCEPTION_STD if not imagenet_default_mean_and_std else IMAGENET_DEFAULT_STD
         self.hflip = args.hflip
+        self.is_train = is_train
 
     def __call__(self, task_dict):
         # Convert to Tensor
@@ -129,6 +130,7 @@ class OusterForMultiMAE(object):
             if task in ['depth', 'intensity']:
                 img = torch.Tensor(np.array(task_dict[task]))
                 img = img.unsqueeze(0) #1xHxW
+                img = transforms.functional.center_crop(img, (128, 128))
             task_dict[task] = img
         
         return task_dict
@@ -148,7 +150,7 @@ def build_multimae_pretraining_dataset(args, is_train = True):
     # transform = DataAugmentationForMultiMAE(args)
     # hard_coded for DurLAR
     # transform = transforms.Compose([transforms.ToTensor(), transforms.Grayscale()]) 
-    transform = OusterForMultiMAE(args)
+    transform = OusterForMultiMAE(args, is_train=is_train)
     if is_train:
         return MultiTaskImageFolder(os.path.join(args.data_path, "train"), args.all_domains, transform=transform)
     else:

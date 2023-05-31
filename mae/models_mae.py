@@ -282,7 +282,7 @@ class MaskedAutoencoderViT(nn.Module):
 
         return x
 
-    def forward_loss(self, imgs, pred, mask):
+    def forward_loss(self, imgs, pred, mask, mask_loss = False):
         """
         imgs: [N, 3, H, W]
         pred: [N, L, p*p*3]
@@ -295,17 +295,26 @@ class MaskedAutoencoderViT(nn.Module):
             target = (target - mean) / (var + 1.e-6)**.5
 
         loss = (pred - target) ** 2
-        loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
-
+        # Mask the loss with LiDAR return
+        if mask_loss:
+            loss_mask = torch.zeros(target.shape).to(imgs.device)
+            loss_mask[target != 0] = 1 # [N, L, ph*pw*c]
+            denom = torch.sum(loss_mask, dim = -1)
+            denom[denom == 0] = 1
+            loss = (loss * loss_mask).sum(dim = -1) / denom
+        else:
+            loss = loss.mean(dim=-1) # [N, L], mean loss per patch
         loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
         return loss
 
-    def forward(self, imgs, mask_ratio=0.75):
+    def forward(self, imgs, mask_ratio=0.75, eval = False):
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
-        masked_imgs = self.mask_images(imgs, mask)
+        if eval:
+            masked_imgs = self.mask_images(imgs, mask)
+        else:
+            masked_imgs = None
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         pred_imgs = self.unpatchify(pred)# [N, L, p*p*3] --> (N, C, H, W)
-        # masked_imgs = masked_imgs.permute(0,2,3,1)
         loss = self.forward_loss(imgs, pred, mask)
         return loss, pred_imgs, masked_imgs
 

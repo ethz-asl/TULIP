@@ -107,8 +107,7 @@ class SwinMAE(nn.Module):
         h, w = self.grid_size()
 
         assert h * w == x.shape[1]
-        
-        x = x.reshape(shape=(x.shape[0], h, w, ph, ph, self.in_chans))
+        x = x.reshape(shape=(x.shape[0], h, w, ph, pw, self.in_chans))
         x = torch.einsum('nhwpqc->nchpwq', x)
         imgs = x.reshape(x.shape[0], self.in_chans, h * ph, w * pw)
         return imgs
@@ -238,20 +237,39 @@ class SwinMAE(nn.Module):
 
         return x
 
-    def forward_loss(self, imgs, pred, mask):
+    def forward_loss(self, imgs, pred, mask, mask_loss = False):
         """
         imgs: [N, 3, H, W]
         pred: [N, L, p*p*3]
         mask: [N, L], 0 is keep, 1 is remove,
         """
+        
+
         target = self.patchify(imgs)
         if self.norm_pix_loss:
             mean = target.mean(dim=-1, keepdim=True)
             var = target.var(dim=-1, keepdim=True)
             target = (target - mean) / (var + 1.e-6) ** .5
 
-        loss = (pred - target) ** 2
-        loss = loss.mean(dim=-1) 
+        loss = (pred - target) ** 2   
+
+        # Mask the loss with LiDAR return
+        if mask_loss:
+            loss_mask = torch.zeros(target.shape, dtype = bool).to(imgs.device)
+            loss_mask[target != 0] = 1 # [N, L, ph*pw*c]
+
+            # Mask for LiDAR return > 0
+            denom = torch.sum(loss_mask, dim = -1)
+            denom[denom == 0] = 1
+
+            # Mask for LiDAR return = 0
+            denom_2 = torch.sum(~loss_mask, dim = -1)
+            denom_2[denom_2 == 0] = 1
+
+            # Give more penalty to pixel with lidar return
+            loss =  100*((loss * loss_mask).sum(dim = -1) / denom) + ((loss * ~loss_mask).sum(dim = -1) / denom_2)
+        else:
+            loss = loss.mean(dim=-1)
 
         loss = (loss * mask).sum() / mask.sum() 
         return loss
@@ -282,11 +300,14 @@ class SwinMAE(nn.Module):
 
         return masked_imgs
     
-    def forward(self, x, mask_ratio):
+    def forward(self, x, mask_ratio, mask_loss = False, eval = False):
         latent, mask = self.forward_encoder(x, mask_ratio)
-        masked_imgs = self.mask_images(x, mask)
+        if eval:
+            masked_imgs = self.mask_images(x, mask)
+        else:
+            masked_imgs = None
         pred = self.forward_decoder(latent)
-        loss = self.forward_loss(x, pred, mask)
+        loss = self.forward_loss(x, pred, mask, mask_loss)
         pred_imgs = self.unpatchify(pred)# [N, L, p*p*3] --> (N, C, H, W)
         return loss, pred_imgs, masked_imgs
 
@@ -303,7 +324,7 @@ class SwinMAE(nn.Module):
 
 def swin_mae(**kwargs):
     model = SwinMAE(
-        patch_size=(4, 4),
+        # patch_size=(4, 4),
         decoder_embed_dim=768,
         depths=(2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24),
         qkv_bias=True, mlp_ratio=4,

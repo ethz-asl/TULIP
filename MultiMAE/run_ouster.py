@@ -661,7 +661,7 @@ def evaluate(model: torch.nn.Module, data_loader: Iterable, tasks_loss_fn: Dict[
             )  
             
             # TODO: Patch size as input variable
-            masked_inputs = get_masked_inputs(input_dict, masks, patch_size=(16, 16))
+            masked_inputs = get_masked_inputs(input_dict, masks, patch_size=(8, 8))
             task_losses = {}
             for task in preds:
                 target = tasks_dict[task]
@@ -680,11 +680,19 @@ def evaluate(model: torch.nn.Module, data_loader: Iterable, tasks_loss_fn: Dict[
 
         
         if log_writer is not None:
+            vis_grid_all = []
+            n_task = 0
+            title = ""
             for task, pred in preds.items():
                 gt = input_dict[task]
                 masked_input = masked_inputs[task]
-                vis_grid = make_grid(torch.cat([gt, pred, masked_input], dim = 0), nrow=1)
-                log_writer.update_img(vis_grid, caption="gt - pred - mask", title = task)
+                vis_grid_all.append(gt)
+                vis_grid_all.append(pred)
+                vis_grid_all.append(masked_input)
+                n_task += 1
+                title += task + "_"
+            vis_grid = make_grid(torch.cat(vis_grid_all, dim = 0), nrow=3, ncol=n_task)
+            log_writer.update_img(vis_grid, caption="gt - pred - mask", title = title)
 
             log_writer.update({
                     'Test/loss': loss_value,})
@@ -695,7 +703,7 @@ def evaluate(model: torch.nn.Module, data_loader: Iterable, tasks_loss_fn: Dict[
     
 
 
-def get_masked_inputs(input_dict, masks, patch_size = (16, 16)):
+def get_masked_inputs(input_dict, masks, patch_size = (8, 8)):
     """
     input_dict = {task: tensor}, tensor = (B, C, H, W)
     masks: (B, (H*W/(p*p))
@@ -711,7 +719,7 @@ def get_masked_inputs(input_dict, masks, patch_size = (16, 16)):
         masked_imgs = masked_imgs.reshape(shape=(B, h * w, C*ph*pw))
         mask = masks[task]
         mask = mask.reshape(shape=(B, -1))
-        masked_imgs[mask.bool(), :] = 1
+        masked_imgs[mask.bool(), :] = 255
         masked_imgs = masked_imgs.reshape(shape=(B, h, w, ph, pw, C))
         masked_imgs = torch.einsum('nhwpqc->nchpwq', masked_imgs)
         masked_imgs = masked_imgs.reshape(shape=batch.shape)
