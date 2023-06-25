@@ -19,6 +19,20 @@ import util.misc as misc
 import util.lr_sched as lr_sched
 from torchvision.utils import make_grid
 
+from pathlib import Path
+import os
+import numpy as np
+
+# For Visualization
+import matplotlib.pyplot as plt
+import matplotlib.colors as colors
+import matplotlib.cm as cmx
+
+cNorm = colors.Normalize(vmin=0, vmax=1)
+jet = plt.get_cmap('magma')
+scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=jet)
+
+
 def train_one_epoch(model: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, loss_scaler,
@@ -43,10 +57,15 @@ def train_one_epoch(model: torch.nn.Module,
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
 
+        #  Inverse, closer object has higher pixel value, but keep black for pixels without LiDAR Return
+        if args.reverse_pixel_value:
+            samples = 1-samples
+            samples[samples == 1] = 0
+    
         samples = samples.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():
-            loss, _, _ = model(samples, mask_ratio=args.mask_ratio, mask_loss = args.mask_loss)
+            loss, _, _ = model(samples, mask_ratio=args.mask_ratio, mask_loss = args.mask_loss, remove = args.remove_mask_token, loss_on_unmasked = args.loss_on_unmasked)
 
         loss_value = loss.item()
 
@@ -98,16 +117,37 @@ def evaluate(data_loader, model, device, log_writer, args=None):
     # iterator = iter(data_loader)
     for batch in data_loader:
         images = batch[0] # (B=1, C, H, W)
+
+        #  Inverse, closer object has higher pixel value, but keep black for pixels without LiDAR Return
+        if args.reverse_pixel_value:
+            images = 1-images
+            images[images == 1] = 0
+
         # target = batch[-1]
         images = images.to(device, non_blocking=True)
         # target = target.to(device, non_blocking=True)
         global_step += 1
         # compute output
         with torch.cuda.amp.autocast():
-            output = model(images, mask_ratio = args.mask_ratio, mask_loss = args.mask_loss, eval = True) # --> tuple(loss, pred_imgs, masked_imgs)
+            output = model(images, mask_ratio = args.mask_ratio, mask_loss = args.mask_loss, eval = True, remove = args.remove_mask_token, loss_on_unmasked = args.loss_on_unmasked) # --> tuple(loss, pred_imgs, masked_imgs)
             loss = output[0]
             pred_img = output[1] # (B=1, C, H, W)
             masked_img = output[2] # (B=1, C, H, W) B: Batch Size, N_MASK: Number of masks H*W/(patch_size*patch_size)
+            
+            # if not args.reverse_pixel_value:
+            #     # If not revers the pixel value in input data, then make it for visualization
+            #     mask_for_masked_image = masked_img == 1
+
+            #     pred_img = 1 - pred_img
+            #     pred_img[pred_img == 1] = 0
+
+            #     images = 1 - images
+            #     images[images == 1] = 0
+
+            #     masked_img = 1 - masked_img
+            #     masked_img[masked_img == 1] = 0
+            #     masked_img[mask_for_masked_image] = 1
+
 
             # loss = criterion(output[1], target)
         if log_writer is not None:
@@ -116,7 +156,22 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                                     images[:, 1], pred_img[:, 1], masked_img[:, 1]], nrow=3, ncol=2)
                 log_writer.add_image('depth+intensity: gt - pred - mask', vis_grid, global_step)
             else:
-                vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
+                images = images.permute(0, 3, 1, 2).squeeze()
+                pred_img = pred_img.permute(0, 3, 1, 2).squeeze()
+                masked_img = masked_img.permute(0, 3, 1, 2).squeeze()
+                images = images.detach().cpu().numpy()
+                pred_img = pred_img.detach().cpu().numpy()
+                masked_img = masked_img.detach().cpu().numpy()
+
+                images = scalarMap.to_rgba(images)[..., :3]
+                pred_img = scalarMap.to_rgba(pred_img)[..., :3]
+                mask_for_masked_image = masked_img == 1
+                mask_for_masked_image = mask_for_masked_image.squeeze()  
+                masked_img = scalarMap.to_rgba(masked_img)[..., :3]
+                masked_img[mask_for_masked_image,:] = [1, 1, 1]
+
+                # vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
+                vis_grid = make_grid([torch.Tensor(images).permute(2, 1, 0), torch.Tensor(pred_img).permute(2, 1, 0), torch.Tensor(masked_img).permute(2, 1, 0)], nrow=1)
                 log_writer.add_image('gt - pred - mask', vis_grid, global_step)
             log_writer.add_scalar('Loss/test', loss.item(), global_step)
             
@@ -126,3 +181,18 @@ def evaluate(data_loader, model, device, log_writer, args=None):
     avg_loss = total_loss / global_step
     if log_writer is not None:
         log_writer.add_scalar('Loss/test_average_loss', avg_loss, 0)
+
+
+
+def get_latest_checkpoint(args):
+    output_dir = Path(args.output_dir)
+    import glob
+    all_checkpoints = glob.glob(os.path.join(output_dir, 'checkpoint-*.pth'))
+    latest_ckpt = -1
+    for ckpt in all_checkpoints:
+        t = ckpt.split('-')[-1].split('.')[0]
+        if t.isdigit():
+            latest_ckpt = max(int(t), latest_ckpt)
+    if latest_ckpt >= 0:
+        args.resume = os.path.join(output_dir, 'checkpoint-%d.pth' % latest_ckpt)
+    print("Find checkpoint: %s" % args.resume)

@@ -63,7 +63,7 @@ DOMAIN_CONF = {
         'stride_level': 1,
         'input_adapter': partial(PatchedInputAdapter, num_channels=1),
         'output_adapter': partial(SpatialOutputAdapter, num_channels=1),
-        'loss': MaskedL1Loss,
+        'loss': MaskedMSELoss,
     }
 }
 
@@ -490,9 +490,9 @@ def main(args):
         
         print('Evaluation Finished')
 
-    if log_writer is not None:
-        print("finish wandb")
-        wandb.finish()
+    # if log_writer is not None:
+    #     print("finish wandb")
+    #     wandb.finish()
 
 def train_one_epoch(model: torch.nn.Module, data_loader: Iterable, tasks_loss_fn: Dict[str, torch.nn.Module],
                     loss_balancer: torch.nn.Module, optimizer: torch.optim.Optimizer,

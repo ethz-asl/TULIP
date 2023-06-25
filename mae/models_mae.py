@@ -297,11 +297,19 @@ class MaskedAutoencoderViT(nn.Module):
         loss = (pred - target) ** 2
         # Mask the loss with LiDAR return
         if mask_loss:
-            loss_mask = torch.zeros(target.shape).to(imgs.device)
+            loss_mask = torch.zeros(target.shape, dtype = bool).to(imgs.device)
             loss_mask[target != 0] = 1 # [N, L, ph*pw*c]
+
+            # Mask for LiDAR return > 0
             denom = torch.sum(loss_mask, dim = -1)
             denom[denom == 0] = 1
-            loss = (loss * loss_mask).sum(dim = -1) / denom
+
+            # Mask for LiDAR return = 0
+            denom_2 = torch.sum(~loss_mask, dim = -1)
+            denom_2[denom_2 == 0] = 1
+
+            # Give more penalty to pixel with lidar return
+            loss =  100*((loss * loss_mask).sum(dim = -1) / denom) + ((loss * ~loss_mask).sum(dim = -1) / denom_2)
         else:
             loss = loss.mean(dim=-1) # [N, L], mean loss per patch
         loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches

@@ -166,6 +166,7 @@ class SwinMAE(nn.Module):
 
         if remove:
             x_masked = torch.gather(x, dim=1, index=index_keep.unsqueeze(-1).repeat(1, 1, D))
+            # Here is a bug, if we remove the mask token, x_masked has no dimension of H*W but H*W*(1-mask_ratio)
             x_masked = rearrange(x_masked, 'B (H W) C -> B H W C', H=int(x_masked.shape[1] ** 0.5))
             return x_masked, mask, sparse_restore
         else:
@@ -213,13 +214,30 @@ class SwinMAE(nn.Module):
             layers_up.append(layer)
         return layers_up
 
-    def forward_encoder(self, x, mask_ratio):
-        x = self.patch_embed(x)
-        x, mask = self.window_masking(x, remove=False, mask_len_sparse=False, mask_ratio=mask_ratio)
+    def forward_encoder(self, x, mask_ratio, remove):
+        # print(x.shape)
+        # add some random noise to the input, Test: only on area of no LiDAR Return
 
+        # sigma = 0.5
+        # noise = torch.randn_like(x) * sigma
+        # # unnoise_mask = torch.zeros(x.shape, dtype = bool)
+        # # unnoise_mask[x != 0] = 1
+        # # noise[unnoise_mask] = 0
+        # x = x + noise.to(x.device)
+
+        x = self.patch_embed(x)
+        # print(x.shape)
+        x, mask = self.window_masking(x, remove=remove, mask_len_sparse=False, mask_ratio=mask_ratio)
+        # print(x.shape)
+        # print("Mask: ", mask.shape)
+        i = 0
         for layer in self.layers:
+            i+=1
+            # print("Layer ", str(i), " : ", x.shape)
             x = layer(x)
 
+
+        # exit(0)
         return x, mask
 
     def forward_decoder(self, x):
@@ -237,7 +255,7 @@ class SwinMAE(nn.Module):
 
         return x
 
-    def forward_loss(self, imgs, pred, mask, mask_loss = False):
+    def forward_loss(self, imgs, pred, mask, mask_loss = False, loss_on_unmasked = False):
         """
         imgs: [N, 3, H, W]
         pred: [N, L, p*p*3]
@@ -271,7 +289,10 @@ class SwinMAE(nn.Module):
         else:
             loss = loss.mean(dim=-1)
 
-        loss = (loss * mask).sum() / mask.sum() 
+        if loss_on_unmasked:
+            loss = loss.mean()
+        else:
+            loss = (loss * mask).sum() / mask.sum() 
         return loss
 
     def mask_images(self, imgs, mask):
@@ -300,14 +321,14 @@ class SwinMAE(nn.Module):
 
         return masked_imgs
     
-    def forward(self, x, mask_ratio, mask_loss = False, eval = False):
-        latent, mask = self.forward_encoder(x, mask_ratio)
+    def forward(self, x, mask_ratio, mask_loss = False, eval = False, remove = False, loss_on_unmasked = False):
+        latent, mask = self.forward_encoder(x, mask_ratio, remove)
         if eval:
             masked_imgs = self.mask_images(x, mask)
         else:
             masked_imgs = None
         pred = self.forward_decoder(latent)
-        loss = self.forward_loss(x, pred, mask, mask_loss)
+        loss = self.forward_loss(x, pred, mask, mask_loss, loss_on_unmasked)
         pred_imgs = self.unpatchify(pred)# [N, L, p*p*3] --> (N, C, H, W)
         return loss, pred_imgs, masked_imgs
 
@@ -330,4 +351,5 @@ def swin_mae(**kwargs):
         qkv_bias=True, mlp_ratio=4,
         drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        #  **kwargs)
     return model

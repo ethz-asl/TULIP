@@ -97,6 +97,7 @@ class MaskedMSELoss(nn.Module):
         loss = F.mse_loss(input, target, reduction='none')
 
         if mask is not None:
+            # TODO: Check this part is correct or not, swin mae and mae use the loss computed only on masked-area but there is bug here
             if mask.sum() == 0:
                 return torch.tensor(0).to(loss.device)
 
@@ -109,7 +110,9 @@ class MaskedMSELoss(nn.Module):
             loss = loss.flatten(start_dim=1).sum(dim=1) / mask.flatten(start_dim=1).sum(dim=1)
             loss = loss.nanmean() # Account for zero masks
         else:
+            # Mean is large because the pixel value is 0-255 instead of 0-1
             loss = loss.mean() # If this is ever nan, we want it to stop training
+            
 
         return loss
 
@@ -139,7 +142,7 @@ class MaskedL1Loss(nn.Module):
         return imgs
 
     def forward(self, input, target, mask=None):
-
+        
         H, W = input.shape[-2:]
         nh, nw = H // self.scale_factor, W // self.scale_factor
 
@@ -166,6 +169,5 @@ class MaskedL1Loss(nn.Module):
             loss = loss.flatten(start_dim=1).sum(dim=1) / mask.flatten(start_dim=1).sum(dim=1)
             loss = loss.nanmean()  # Account for zero masks
         else:
-            loss = loss.mean()  # If this is ever nan, we want it to stop training
-
+            loss = loss.mean() # If this is ever nan, we want it to stop training
         return loss

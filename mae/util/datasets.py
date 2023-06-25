@@ -16,6 +16,7 @@ from torchvision import datasets, transforms
 import torch
 
 import torch.utils.data as data
+import torch.nn.functional as F
 
 from timm.data import create_transform
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
@@ -34,14 +35,14 @@ from torchvision.datasets.vision import VisionDataset
 IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff', '.webp', '.jpx')
 
 def build_durlar_dataset(is_train, args):
-    
-    t = [transforms.Grayscale(), transforms.ToTensor()]
+    if args.in_chans == 1:
+        t = [transforms.Grayscale(), transforms.ToTensor()]
+    elif args.in_chans == 3:
+        # t = [transforms.ToTensor(), transforms.ConvertImageDtype(dtype = torch.float32)]
+        size = (224, 224)
+        t = [transforms.Resize(size, interpolation=PIL.Image.BICUBIC), transforms.ToTensor()]
     if args.crop:
-        if is_train:
-            # t.append(transforms.RandomCrop(args.img_size))
-            t.append(transforms.CenterCrop(args.img_size))
-        else:
-            t.append(transforms.CenterCrop(args.img_size))
+        t.append(transforms.CenterCrop(args.img_size))
 
     transform = transforms.Compose(t)
     root = os.path.join(args.data_path, 'train' if is_train else 'val')
@@ -51,7 +52,8 @@ def build_durlar_dataset(is_train, args):
 
     return dataset
 
-    
+
+# For Image Net dataset
 def build_dataset(is_train, args):
     # if args.transform:
     transform = build_transform(is_train, args)
@@ -100,6 +102,14 @@ def build_transform(is_train, args):
     
     # t.append(transforms.Normalize(mean, std))
     return transforms.Compose(t)
+
+
+# class ToTensorFloat32(object):
+#     def __call__(self, image):
+#         # Convert to Tensor 
+#         image = torch.as_tensor(np.asarray(image), dtype=torch.float32) 
+        
+#         return image
 
 
 class ComposeDepthIntensity(object):

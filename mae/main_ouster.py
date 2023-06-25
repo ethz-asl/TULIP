@@ -36,7 +36,7 @@ from util.misc import NativeScalerWithGradNormCount as NativeScaler
 import models_mae
 import swin_mae
 from timm.data.dataset import ImageDataset
-from engine_pretrain import train_one_epoch, evaluate
+from engine_pretrain import train_one_epoch, evaluate, get_latest_checkpoint
 import wandb
 
 
@@ -57,6 +57,7 @@ def get_args_parser():
     # Swin MAE parameters
     parser.add_argument('--window_size', default=7, type=int,
                         help='size of window partition')
+    parser.add_argument('--remove_mask_token', action="store_true", help="Remove mask token in the encoder")
     parser.add_argument('--patch_size', nargs="+", type=int, help='image size, given in format h w')
 
 
@@ -72,6 +73,9 @@ def get_args_parser():
 
     parser.add_argument('--mask_ratio', default=0.75, type=float,
                         help='Masking ratio (percentage of removed patches).')
+
+    parser.add_argument('--loss_on_unmasked', action='store_true',
+                        help='Set True to also compute loss on unmasked areas')
 
     parser.add_argument('--norm_pix_loss', action='store_true',
                         help='Use (per-patch) normalized pixels as targets for computing loss')
@@ -122,6 +126,8 @@ def get_args_parser():
     parser.add_argument('--crop', action="store_true", help='crop the image to 128 x 128 (default)')
     parser.add_argument('--mask_loss', action="store_true", help='Mask the loss value with no LiDAR return')
     parser.add_argument('--use_intensity', action="store_true", help='use the intensity as the second channel')
+    parser.add_argument('--reverse_pixel_value', action="store_true", help='reverse the pixel value in the input')
+    
 
     # Training parameters
     parser.add_argument('--output_dir', default='./output_dir',
@@ -244,6 +250,8 @@ def main(args):
         pin_memory=args.pin_mem,
         drop_last=False
     )
+
+    
     
     # define the model
     if args.model_select == "mae":
@@ -272,6 +280,23 @@ def main(args):
         for name, p in model.named_parameters():
             if name in list(pretrain_model.keys()):
                 p.requires_grad = False
+
+    if args.eval and os.path.exists(args.output_dir):
+        print("Loading Checkpoint and directly start the evaluation")
+        get_latest_checkpoint(args)
+        # checkpoint = torch.load(args.resume, map_location='cpu')
+        # model.load_state_dict(checkpoint)
+        misc.load_model(
+                args=args, model_without_ddp=model, optimizer=None,
+                loss_scaler=None)
+        model.to(device)
+
+        print("Start Evaluation")
+        evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
+        print("Evaluation finished")
+
+        exit(0)
+        
 
     model.to(device)
 
@@ -331,10 +356,10 @@ def main(args):
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
 
-    if args.eval:
-        print("Start Evaluation")
-        evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
-        print("Evaluation finished")
+    
+    print("Start Evaluation")
+    evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
+    print("Evaluation finished")
 
     if global_rank == 0:
         wandb.finish()
