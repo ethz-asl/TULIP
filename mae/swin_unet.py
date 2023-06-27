@@ -5,6 +5,8 @@ import torch.nn.functional as func
 from einops import rearrange
 from typing import Optional
 
+from functools import partial
+
 
 class DropPath(nn.Module):
     def __init__(self, drop_prob: float = 0.):
@@ -26,6 +28,7 @@ class DropPath(nn.Module):
 class PatchEmbedding(nn.Module):
     def __init__(self, img_size=(224, 224), patch_size=(4, 4), in_c: int = 3, embed_dim: int = 96, norm_layer: nn.Module = None):
         super().__init__()
+        self.img_size = img_size
         self.patch_size = patch_size
         self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=patch_size, stride=patch_size)
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
@@ -372,8 +375,8 @@ class BasicBlockUp(nn.Module):
 
 
 class SwinUnet(nn.Module):
-    def __init__(self, patch_size: int = 4, in_chans: int = 3, num_classes: int = 1000, embed_dim: int = 96,
-                 window_size: int = 7, depths: tuple = (2, 2, 6, 2), num_heads: tuple = (3, 6, 12, 24),
+    def __init__(self, img_size = (224, 224), patch_size = (4, 4), in_chans: int = 1, num_output_channel: int = 1, embed_dim: int = 96,
+                 window_size: int = 4, depths: tuple = (2, 2, 6, 2), num_heads: tuple = (3, 6, 12, 24),
                  mlp_ratio: float = 4., qkv_bias: bool = True, drop_rate: float = 0., attn_drop_rate: float = 0.,
                  drop_path_rate: float = 0.1, norm_layer=nn.LayerNorm, patch_norm: bool = True):
         super().__init__()
@@ -389,9 +392,10 @@ class SwinUnet(nn.Module):
         self.attn_drop_rate = attn_drop_rate
         self.drop_path = drop_path_rate
         self.norm_layer = norm_layer
+        self.img_size = img_size
 
         self.patch_embed = PatchEmbedding(
-            patch_size=patch_size, in_c=in_chans, embed_dim=embed_dim,
+            img_size = img_size, patch_size=patch_size, in_c=in_chans, embed_dim=embed_dim,
             norm_layer=norm_layer if patch_norm else None)
         self.pos_drop = nn.Dropout(p=drop_rate)
         self.layers = self.build_layers()
@@ -400,7 +404,7 @@ class SwinUnet(nn.Module):
         self.skip_connection_layers = self.skip_connection()
         self.norm_up = norm_layer(embed_dim)
         self.final_patch_expanding = FinalPatchExpanding(dim=embed_dim, norm_layer=norm_layer)
-        self.head = nn.Conv2d(in_channels=embed_dim, out_channels=num_classes, kernel_size=(1, 1), bias=False)
+        self.head = nn.Conv2d(in_channels=embed_dim, out_channels=num_output_channel, kernel_size=(1, 1), bias=False)
         self.apply(self.init_weights)
 
     @staticmethod
@@ -460,8 +464,12 @@ class SwinUnet(nn.Module):
         return skip_connection_layers
 
     def forward(self, x):
-        x = self.patch_embed(x)
-        x = self.pos_drop(x)
+        x = self.patch_embed(x) 
+
+    
+        # Have to rearrange to the shape with H * H * C, otherwise the shape won't match in transformer
+        x = x.contiguous().view((x.shape[0], int((x.shape[1] * x.shape[2])**0.5), int((x.shape[1] * x.shape[2])**0.5), x.shape[3]))
+        x = self.pos_drop(x) 
 
         x_save = []
         for i, layer in enumerate(self.layers):
@@ -479,5 +487,20 @@ class SwinUnet(nn.Module):
         x = self.final_patch_expanding(x)
 
         x = rearrange(x, 'B H W C -> B C H W')
-        x = self.head(x)
+
+        # Please consider reshape the image here again, as in transformer we always have the input with shape of B, H, H, C
+        # for example, if 32*2048 range map as input
+        # 32*2048 -> 16*1024 -> 128 * 128 -> 256*256 -> 128*2048
+        x = self.head(x.contiguous())
         return x
+
+
+def swin_unet(**kwargs):
+    model = SwinUnet(
+        # patch_size=(4, 4),
+        depths=(2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        #  **kwargs)
+    return model

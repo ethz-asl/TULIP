@@ -226,13 +226,8 @@ class SwinMAE(nn.Module):
         # x = x + noise.to(x.device)
 
         x = self.patch_embed(x)
-        # print(x.shape)
         x, mask = self.window_masking(x, remove=remove, mask_len_sparse=False, mask_ratio=mask_ratio)
-        # print(x.shape)
-        # print("Mask: ", mask.shape)
-        i = 0
         for layer in self.layers:
-            i+=1
             # print("Layer ", str(i), " : ", x.shape)
             x = layer(x)
 
