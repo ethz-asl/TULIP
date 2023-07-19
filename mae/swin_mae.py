@@ -338,9 +338,10 @@ class SwinMAE(nn.Module):
 #         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
 #     return model
 
-def swin_mae(**kwargs):
+def swin_mae_pacth4_ws4_dec768d(**kwargs):
     model = SwinMAE(
-        # patch_size=(4, 4),
+        patch_size=(4, 4),
+        window_size=4,
         decoder_embed_dim=768,
         depths=(2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24),
         qkv_bias=True, mlp_ratio=4,
@@ -348,3 +349,86 @@ def swin_mae(**kwargs):
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
         #  **kwargs)
     return model
+
+
+def swin_mae_pacth4_ws4_dec384d(**kwargs):
+    model = SwinMAE(
+        patch_size=(4, 4),
+        window_size=4,
+        decoder_embed_dim=384,
+        depths=(2, 2, 2, 2), embed_dim=48, num_heads=(3, 6, 12, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        #  **kwargs)
+    return model
+
+
+def swin_mae_pacth4_ws4_dec192d(**kwargs):
+    model = SwinMAE(
+        patch_size=(4, 4),
+        window_size=4,
+        decoder_embed_dim=192,
+        depths=(1, 1, 1, 1), embed_dim=24, num_heads=(3, 6, 12, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        #  **kwargs)
+    return model
+
+def swin_mae_pacth2_ws4_dec768d_depth4422(**kwargs):
+    model = SwinMAE(
+        patch_size=(2, 2),
+        window_size=4,
+        decoder_embed_dim=768,
+        depths=(2, 2, 4, 4), embed_dim=96, num_heads=(6, 12, 16, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        #  **kwargs)
+    return model
+
+def swin_mae_pacth2_ws4_dec768d(**kwargs):
+    model = SwinMAE(
+        patch_size=(2, 2),
+        window_size=4,
+        decoder_embed_dim=768,
+        depths=(2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        #  **kwargs)
+    return model
+
+def swin_mae_pacth2_ws4_dec384d(**kwargs):
+    model = SwinMAE(
+        patch_size=(2, 2),
+        window_size=4,
+        decoder_embed_dim=384,
+        depths=(2, 2, 2, 2), embed_dim=48, num_heads=(3, 6, 12, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        #  **kwargs)
+    return model
+
+
+def swin_mae_pacth2_ws4_dec192d(**kwargs):
+    model = SwinMAE(
+        patch_size=(4, 4),
+        window_size=2,
+        decoder_embed_dim=192,
+        depths=(1, 1, 1, 1), embed_dim=24, num_heads=(3, 6, 12, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        #  **kwargs)
+    return model
+
+swin_mae_patch2_large = swin_mae_pacth2_ws4_dec768d_depth4422
+swin_mae_patch2_base = swin_mae_pacth2_ws4_dec768d
+swin_mae_patch2_small = swin_mae_pacth2_ws4_dec384d
+swin_mae_patch2_tiny = swin_mae_pacth2_ws4_dec192d
+swin_mae_patch4_base = swin_mae_pacth4_ws4_dec768d
+swin_mae_patch4_small = swin_mae_pacth4_ws4_dec384d
+swin_mae_patch4_tiny = swin_mae_pacth4_ws4_dec192d

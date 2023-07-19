@@ -63,7 +63,7 @@ def get_args_parser():
     # Model parameters
     parser.add_argument('--model_select', default='mae', type=str,
                         choices=['mae', 'swin_mae', 'swin_unet'])
-    
+
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
                         help='Name of model to train')
 
@@ -123,6 +123,8 @@ def get_args_parser():
     parser.add_argument('--mask_loss', action="store_true", help='Mask the loss value with no LiDAR return')
     parser.add_argument('--use_intensity', action="store_true", help='use the intensity as the second channel')
     parser.add_argument('--reverse_pixel_value', action="store_true", help='reverse the pixel value in the input')
+    parser.add_argument('--save_pcd', action="store_true", help='save pcd output in evaluation step')
+    
     
 
     # Training parameters
@@ -307,7 +309,7 @@ def main(args):
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
     loss_scaler = NativeScaler()
-    criterion = torch.nn.L1Loss()
+    
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
@@ -319,7 +321,6 @@ def main(args):
         train_stats = train_one_epoch(
             model, data_loader_train,
             optimizer, device, epoch, loss_scaler,
-            criterion=criterion,
             log_writer=log_writer,
             args=args
         )
@@ -343,7 +344,7 @@ def main(args):
 
     
     print("Start Evaluation")
-    evaluate(data_loader_val, model, device, log_writer = log_writer, criterion=criterion, args = args)
+    evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
     print("Evaluation finished")
 
     if global_rank == 0:

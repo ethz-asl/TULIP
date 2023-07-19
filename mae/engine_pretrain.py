@@ -29,7 +29,7 @@ import matplotlib.colors as colors
 import matplotlib.cm as cmx
 
 cNorm = colors.Normalize(vmin=0, vmax=1)
-jet = plt.get_cmap('magma')
+jet = plt.get_cmap('viridis_r')
 scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=jet)
 
 
@@ -65,7 +65,17 @@ def train_one_epoch(model: torch.nn.Module,
         samples = samples.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():
-            loss, _, _ = model(samples, mask_ratio=args.mask_ratio, mask_loss = args.mask_loss, remove = args.remove_mask_token, loss_on_unmasked = args.loss_on_unmasked)
+            # Only Swin MAE is able to train with curriculum learning strategy, as it uses all patchs (mask and non-mask) as input
+            if args.curriculum_learning and args.model_select == "swin_mae":
+                curriculum_step = args.epochs // 10 # 1 + 2 + 3
+                if epoch < 7*curriculum_step:
+                    args.mask_ratio = 0.75
+                elif epoch >= 7*curriculum_step and epoch < 9*curriculum_step:
+                    args.mask_ratio = 0.5
+                else:
+                    args.mask_ratio = 0.25
+            loss, _, _ = model(samples, mask_ratio=args.mask_ratio, mask_loss = args.mask_loss, loss_on_unmasked = args.loss_on_unmasked)
+            
 
         loss_value = loss.item()
 
@@ -129,7 +139,10 @@ def evaluate(data_loader, model, device, log_writer, args=None):
         global_step += 1
         # compute output
         with torch.cuda.amp.autocast():
-            output = model(images, mask_ratio = args.mask_ratio, mask_loss = args.mask_loss, eval = True, remove = args.remove_mask_token, loss_on_unmasked = args.loss_on_unmasked) # --> tuple(loss, pred_imgs, masked_imgs)
+            if args.curriculum_learning and args.model_select == "swin_mae":
+                args.mask_ratio = 0.75
+            # args.mask_ratio = 0.75
+            output = model(images, mask_ratio = args.mask_ratio, mask_loss = args.mask_loss, eval = True, loss_on_unmasked = args.loss_on_unmasked) # --> tuple(loss, pred_imgs, masked_imgs)
             loss = output[0]
             pred_img = output[1] # (B=1, C, H, W)
             masked_img = output[2] # (B=1, C, H, W) B: Batch Size, N_MASK: Number of masks H*W/(patch_size*patch_size)

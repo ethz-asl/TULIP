@@ -282,7 +282,7 @@ class MaskedAutoencoderViT(nn.Module):
 
         return x
 
-    def forward_loss(self, imgs, pred, mask, mask_loss = False):
+    def forward_loss(self, imgs, pred, mask, mask_loss = False, loss_on_unmasked = False):
         """
         imgs: [N, 3, H, W]
         pred: [N, L, p*p*3]
@@ -294,7 +294,11 @@ class MaskedAutoencoderViT(nn.Module):
             var = target.var(dim=-1, keepdim=True)
             target = (target - mean) / (var + 1.e-6)**.5
 
+        # l2_loss
         loss = (pred - target) ** 2
+
+        # l1_loss
+        # loss = (pred - target).abs()      
         # Mask the loss with LiDAR return
         if mask_loss:
             loss_mask = torch.zeros(target.shape, dtype = bool).to(imgs.device)
@@ -312,10 +316,15 @@ class MaskedAutoencoderViT(nn.Module):
             loss =  100*((loss * loss_mask).sum(dim = -1) / denom) + ((loss * ~loss_mask).sum(dim = -1) / denom_2)
         else:
             loss = loss.mean(dim=-1) # [N, L], mean loss per patch
-        loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
+
+        if loss_on_unmasked:
+            loss = loss.mean()
+        else:
+            loss = (loss * mask).sum() / mask.sum() # mean loss on removed patches
+
         return loss
 
-    def forward(self, imgs, mask_ratio=0.75, eval = False):
+    def forward(self, imgs, mask_ratio=0.75, eval = False, mask_loss = False, loss_on_unmasked = False):
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
         if eval:
             masked_imgs = self.mask_images(imgs, mask)
@@ -323,7 +332,7 @@ class MaskedAutoencoderViT(nn.Module):
             masked_imgs = None
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         pred_imgs = self.unpatchify(pred)# [N, L, p*p*3] --> (N, C, H, W)
-        loss = self.forward_loss(imgs, pred, mask)
+        loss = self.forward_loss(imgs, pred, mask, mask_loss=mask_loss, loss_on_unmasked=loss_on_unmasked)
         return loss, pred_imgs, masked_imgs
 
 
@@ -358,8 +367,56 @@ def mae_vit_huge_patch14_dec512d8b(**kwargs):
     return model
 
 
+# Self Define
+def mae_vit_small_patch_16_dec192d4b_enc256d8b(**kwargs):
+    model = MaskedAutoencoderViT(
+        patch_size=16, embed_dim=256, depth=8, num_heads=16,
+        decoder_embed_dim=192, decoder_depth=4, decoder_num_heads=16,
+        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
+def mae_vit_tiny_patch_16_dec96d2b_enc128d4b(**kwargs):
+    model = MaskedAutoencoderViT(
+        patch_size=16, embed_dim=128, depth=4, num_heads=16,
+        decoder_embed_dim=96, decoder_depth=2, decoder_num_heads=16,
+        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
+def mae_vit_base_patch_16_dec384d8b_enc512d16b(**kwargs):
+    model = MaskedAutoencoderViT(
+        patch_size=16, embed_dim=512, depth=16, num_heads=16,
+        decoder_embed_dim=384, decoder_depth=8, decoder_num_heads=16,
+        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
+def mae_vit_large_patch_16_dec786d16b_enc1024d32b(**kwargs):
+    model = MaskedAutoencoderViT(
+        patch_size=16, embed_dim=1024, depth=32, num_heads=16,
+        decoder_embed_dim=768, decoder_depth=16, decoder_num_heads=16,
+        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
+def mae_vit_base_patch_8_dec384d8b_enc512d16b(**kwargs):
+    model = MaskedAutoencoderViT(
+        patch_size=8, embed_dim=512, depth=16, num_heads=16,
+        decoder_embed_dim=384, decoder_depth=8, decoder_num_heads=16,
+        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
+
 # set recommended archs
-mae_vit_base_patch8 = mae_vit_base_patch8_dec512d8b 
-mae_vit_base_patch16 = mae_vit_base_patch16_dec512d8b  # decoder: 512 dim, 8 blocks
-mae_vit_large_patch16 = mae_vit_large_patch16_dec512d8b  # decoder: 512 dim, 8 blocks
-mae_vit_huge_patch14 = mae_vit_huge_patch14_dec512d8b  # decoder: 512 dim, 8 blocks
+# mae_vit_base_patch8 = mae_vit_base_patch8_dec512d8b 
+# mae_vit_base_patch16 = mae_vit_base_patch16_dec512d8b  # decoder: 512 dim, 8 blocks
+# mae_vit_large_patch16 = mae_vit_large_patch16_dec512d8b  # decoder: 512 dim, 8 blocks
+# mae_vit_huge_patch14 = mae_vit_huge_patch14_dec512d8b  # decoder: 512 dim, 8 blocks
+
+# self define
+mae_vit_tiny_patch16 = mae_vit_tiny_patch_16_dec96d2b_enc128d4b
+mae_vit_small_patch16 = mae_vit_small_patch_16_dec192d4b_enc256d8b
+mae_vit_base_patch16 = mae_vit_base_patch_16_dec384d8b_enc512d16b
+mae_vit_large_patch16 = mae_vit_large_patch_16_dec786d16b_enc1024d32b
+
+mae_vit_base_patch8 = mae_vit_base_patch_8_dec384d8b_enc512d16b
+
+
+# mae_vit_small_patch8 = mae_vit_base_patch_8_dec256d4b

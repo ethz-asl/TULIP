@@ -77,11 +77,17 @@ def get_args_parser():
     parser.add_argument('--loss_on_unmasked', action='store_true',
                         help='Set True to also compute loss on unmasked areas')
 
+    parser.add_argument('--curriculum_learning', action='store_true',
+                        help='Curriculum Learning strategy: Decreasing Masking ratio in the training (hard -> easy)')
+
     parser.add_argument('--norm_pix_loss', action='store_true',
                         help='Use (per-patch) normalized pixels as targets for computing loss')
     parser.set_defaults(norm_pix_loss=False)
     
     # Optimizer parameters
+    parser.add_argument('--optimizer', type=str, default='adamw',
+                        help='optimizer for training')
+    
     parser.add_argument('--weight_decay', type=float, default=0.05,
                         help='weight decay (default: 0.05)')
 
@@ -166,6 +172,12 @@ def get_args_parser():
     
     
     return parser
+
+def get_optimizer(args, param_groups):
+    if args.optimizer == 'adamw':
+        return torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
+    elif args.optimizer == 'adam':
+        return torch.optim.Adam(param_groups, lr=args.lr, betas=(0.9, 0.95))
 
 
 def main(args):
@@ -260,11 +272,9 @@ def main(args):
                                                 norm_pix_loss=args.norm_pix_loss, 
                                                 use_cls_token=args.use_cls_token)
     elif args.model_select == "swin_mae":
-        model = swin_mae.__dict__[args.model_select](img_size = tuple(args.img_size),
-                                                     patch_size = tuple(args.patch_size), 
+        model = swin_mae.__dict__[args.model](img_size = tuple(args.img_size),
                                                      norm_pix_loss=args.norm_pix_loss,
-                                                     in_chans = args.in_chans,
-                                                     window_size = args.window_size,)
+                                                     in_chans = args.in_chans,)
         
     # Load pretrained model
     if args.pretrain is not None:
@@ -321,7 +331,7 @@ def main(args):
     # following timm: set wd as 0 for bias and norm layers
     # param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
     param_groups = optim_factory.param_groups_layer_decay(model_without_ddp, args.weight_decay)
-    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
+    optimizer = get_optimizer(args, param_groups)
     print(optimizer)
     loss_scaler = NativeScaler()
 

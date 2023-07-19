@@ -7,30 +7,33 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 
 args=(
-    --batch_size 32
-    --epochs 1000
+    --batch_size 16
+    --epochs 20
     --num_workers 2
-    # --lr 1e-6
+    --lr 5e-3
+    --weight_decay 0.0005
+    --optimizer adamw
     # Model parameters
+    --curriculum_learning
     --model_select swin_mae
+    --model swin_mae_patch2_base
     # --eval
     # Dataset
-    --data_path /cluster/work/riner/users/biyang/dataset/depth_intensity_middle_low_res
-    --crop
+    --data_path /cluster/work/riner/users/biyang/dataset/depth_intensity_large_low_res
+    # --crop
     --loss_on_unmasked
     # WandB Parameters
-    --run_name original_025_1000epochs_loss_on_unmasked
+    --run_name curriculum_learning_maskratio_075
     --entity biyang
     --project_name swin_mae_lowres_durlar
-    --wandb_disabled
-    --output_dir ./experiment/durlar/LowRes/original_025_1000epochs_loss_on_unmasked
-    --mask_ratio 0.25
+    # --wandb_disabled
+    --output_dir ./experiment/durlar/LowRes/curriculum_learning_maskratio_075
+    --mask_ratio 0.75
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
-    --img_size 32 128
+    --img_size 32 2048
     --input_size 128
-    --window_size 4
-    --patch_size 2 2
     --in_chans 1
+
 
     # --img_size 224 224
     # --input_size 224

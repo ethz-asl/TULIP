@@ -35,6 +35,21 @@ import torch
 from torchvision.datasets.vision import VisionDataset
 IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff', '.webp', '.jpx')
 
+## Add Gaussian Noise (sensor noise)
+
+class AddGaussianNoise(torch.nn.Module):
+    def __init__(self, mu, sigma):
+        super().__init__()#
+        self.sigma = sigma
+        self.mu = mu
+    def forward(self, img):
+        return torch.randn(img.size()) * self.sigma + self.mu
+
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(size={self.size})"
+
+
 class ConcatDataset(torch.utils.data.Dataset):
     def __init__(self, *datasets):
         self.datasets = datasets
@@ -73,13 +88,21 @@ def build_durlar_upsampling_dataset(is_train, args):
 
 def build_durlar_dataset(is_train, args):
     if args.in_chans == 1:
-        t = [transforms.Grayscale(), transforms.ToTensor()]
+        # Add Data Augumentation for making use of remaining model capacity
+        t = [transforms.Grayscale(), 
+             transforms.ToTensor(),]
     elif args.in_chans == 3:
         # t = [transforms.ToTensor(), transforms.ConvertImageDtype(dtype = torch.float32)]
         size = (224, 224)
         t = [transforms.Resize(size, interpolation=PIL.Image.BICUBIC), transforms.ToTensor()]
     if args.crop:
         t.append(transforms.CenterCrop(args.img_size))
+
+    # Data Augumentation for training data (make full use of model capacity)
+    # if is_train:
+    #     t.extend([AddGaussianNoise(sigma=0.03, mu=0),
+    #              transforms.RandomVerticalFlip(p=0.5),
+    #              transforms.RandomHorizontalFlip(p=0.5),])
 
     transform = transforms.Compose(t)
     root = os.path.join(args.data_path, 'train' if is_train else 'val')

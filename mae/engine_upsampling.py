@@ -27,9 +27,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import matplotlib.cm as cmx
+from util.evaluation import *
+import trimesh
 
 cNorm = colors.Normalize(vmin=0, vmax=1)
-jet = plt.get_cmap('magma')
+jet = plt.get_cmap('viridis_r')
 scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=jet)
 
 
@@ -37,7 +39,6 @@ def train_one_epoch(model: torch.nn.Module,
                     data_loader: Iterable,
                     optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, loss_scaler,
-                    criterion:  torch.nn.L1Loss(), 
                     log_writer=None,
                     args=None):
     model.train(True)
@@ -65,9 +66,9 @@ def train_one_epoch(model: torch.nn.Module,
 
 
         with torch.cuda.amp.autocast():
-            pred = model(samples_low_res.contiguous())
+            _, loss = model(samples_low_res.contiguous(), samples_high_res.contiguous(), img_size_high_res = args.img_size_high_res)
 
-        loss = criterion(pred, samples_high_res.contiguous())
+        # loss = criterion(pred, samples_high_res.contiguous())
         loss_value = loss.item()
 
         if not math.isfinite(loss_value):
@@ -103,18 +104,24 @@ def train_one_epoch(model: torch.nn.Module,
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 @torch.no_grad()
-def evaluate(data_loader, model, device, log_writer, criterion = torch.nn.L1Loss(), args=None):
+def evaluate(data_loader, model, device, log_writer, args=None):
     # This criterion is also for classfiction, we can directly use the loss forward computation in mae model
     # criterion = torch.nn.CrossEntropyLoss()
 
     # metric_logger = misc.MetricLogger(delimiter="  ")
     header = 'Test:'
+    h_low_res = tuple(args.img_size_low_res)[0]
+    h_high_res = tuple(args.img_size_high_res)[0]
+
+    downsampling_factor = h_high_res // h_low_res
 
     # switch to evaluation mode
     model.eval()
 
+    grid_size = 0.1
     global_step = 0
     total_loss = 0
+    local_step = 0
     # iterator = iter(data_loader)
     for batch in data_loader:
         images_low_res = batch[0][0] # (B=1, C, H, W)
@@ -127,23 +134,79 @@ def evaluate(data_loader, model, device, log_writer, criterion = torch.nn.L1Loss
         global_step += 1
         # compute output
         with torch.cuda.amp.autocast():
-            pred_img = model(images_low_res) # --> tuple(loss, pred_imgs, masked_imgs)
-        loss = criterion(pred_img, images_high_res)
+            pred_img, loss = model(images_low_res, images_high_res, img_size_high_res = args.img_size_high_res) # --> tuple(loss, pred_imgs, masked_imgs)
+        # loss = criterion(pred_img, images_high_res)
             
         if log_writer is not None:
-            images_high_res = images_high_res.permute(0, 3, 1, 2).squeeze()
-            pred_img = pred_img.permute(0, 3, 1, 2).squeeze()
+            images_high_res = images_high_res.permute(0, 2, 3, 1).squeeze()
+            images_low_res = images_low_res.permute(0, 2, 3, 1).squeeze()
+            pred_img = pred_img.permute(0, 2, 3, 1).squeeze()
 
             images_high_res = images_high_res.detach().cpu().numpy()
             pred_img = pred_img.detach().cpu().numpy()
+            images_low_res = images_low_res.detach().cpu().numpy()
+
+            # Keep the pixel values in low resolution image
+            low_res_index = range(0, h_high_res, downsampling_factor)
+
+            # Evaluate the loss of low resolution part
+            pred_low_res_part = pred_img[low_res_index, :]
+            loss_low_res_part = (pred_low_res_part - images_low_res) ** 2
+            loss_low_res_part = loss_low_res_part.mean()
+
+            pred_img[low_res_index, :] = images_low_res
+
+            # 3D Evaluation Metrics
+            pcd_pred = img_to_pcd(pred_img)
+            pcd_gt = img_to_pcd(images_high_res)
+
+            pcd_all = np.vstack((pcd_pred, pcd_gt))
+
+            chamfer_dist = chamfer_distance(pcd_gt, pcd_pred)
+            min_coord = np.min(pcd_all, axis=0)
+            max_coord = np.max(pcd_all, axis=0)
+            
+            # Voxelize the ground truth and prediction point clouds
+            voxel_grid_predicted = voxelize_point_cloud(pcd_pred, grid_size, min_coord, max_coord)
+            voxel_grid_ground_truth = voxelize_point_cloud(pcd_gt, grid_size, min_coord, max_coord)
+            # Calculate metrics
+            iou, precision, recall = calculate_metrics(voxel_grid_predicted, voxel_grid_ground_truth)
+
+            if args.save_pcd:
+                
+                pcd_outputpath = os.path.join(args.output_dir, 'pcd')
+                if not os.path.exists(pcd_outputpath):
+                    os.mkdir(pcd_outputpath)
+                pcd_pred_color = np.zeros_like(pcd_pred)
+                pcd_pred_color[:, 0] = 255
+                pcd_gt_color = np.zeros_like(pcd_gt)
+                pcd_gt_color[:, 2] = 255
+                
+                pcd_all_color = np.vstack((pcd_pred_color, pcd_gt_color))
+
+                point_cloud = trimesh.PointCloud(
+                    vertices=pcd_all,
+                    colors=pcd_all_color)
+                
+                point_cloud.export(os.path.join(pcd_outputpath, f"pred_gt_{local_step}.ply"))
+                local_step += 1
+                
+
 
             images_high_res = scalarMap.to_rgba(images_high_res)[..., :3]
             pred_img = scalarMap.to_rgba(pred_img)[..., :3]
 
             # vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
-            vis_grid = make_grid([torch.Tensor(images_high_res).permute(2, 1, 0), torch.Tensor(pred_img).permute(2, 1, 0)], nrow=1)
+            vis_grid = make_grid([torch.Tensor(images_high_res).permute(2, 0, 1), torch.Tensor(pred_img).permute(2, 0, 1)], nrow=1)
             log_writer.add_image('gt - pred', vis_grid, global_step)
-            log_writer.add_scalar('Loss/test', loss.item(), global_step)
+            log_writer.add_scalar('Test/mse_all', loss.item(), global_step)
+
+            log_writer.add_scalar('Test/mse_low_res', loss_low_res_part, global_step)
+            log_writer.add_scalar('Test/chamfer_dist', chamfer_dist, global_step)
+            log_writer.add_scalar('Test/iou', iou, global_step)
+            log_writer.add_scalar('Test/precision', precision, global_step)
+            log_writer.add_scalar('Test/recall', recall, global_step)
+        
         
         total_loss += loss.item()
     

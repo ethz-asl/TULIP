@@ -462,8 +462,14 @@ class SwinUnet(nn.Module):
             layer = nn.Linear(dim * 2, dim)
             skip_connection_layers.append(layer)
         return skip_connection_layers
+    
+    def forward_loss(self, pred, target):
+        loss = (pred - target) ** 2  
+        loss = loss.mean()
 
-    def forward(self, x):
+        return loss
+
+    def forward(self, x, target, img_size_high_res):
         x = self.patch_embed(x) 
 
     
@@ -486,13 +492,18 @@ class SwinUnet(nn.Module):
         x = self.norm_up(x)
         x = self.final_patch_expanding(x)
 
+
         x = rearrange(x, 'B H W C -> B C H W')
 
         # Please consider reshape the image here again, as in transformer we always have the input with shape of B, H, H, C
         # for example, if 32*2048 range map as input
-        # 32*2048 -> 16*1024 -> 128 * 128 -> 256*256 -> 128*2048
+        # 32*2048 -> 16*1024 -> 128 * 128 -> 512*512 -> 128*2048
+        x = x.contiguous().view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
         x = self.head(x.contiguous())
-        return x
+
+        loss = self.forward_loss(x, target)
+
+        return x, loss
 
 
 def swin_unet(**kwargs):
