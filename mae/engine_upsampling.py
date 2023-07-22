@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import matplotlib.cm as cmx
 from util.evaluation import *
+from util.filter import *
 import trimesh
 
 cNorm = colors.Normalize(vmin=0, vmax=1)
@@ -66,35 +67,42 @@ def train_one_epoch(model: torch.nn.Module,
 
 
         with torch.cuda.amp.autocast():
-            _, loss = model(samples_low_res.contiguous(), samples_high_res.contiguous(), img_size_high_res = args.img_size_high_res)
+            _, total_loss, pixel_loss = model(samples_low_res.contiguous(), 
+                            samples_high_res.contiguous(), 
+                            img_size_high_res = args.img_size_high_res,
+                            eval = False)
 
         # loss = criterion(pred, samples_high_res.contiguous())
-        loss_value = loss.item()
+        total_loss_value = total_loss.item()
+        pixel_loss_value = pixel_loss.item()
 
-        if not math.isfinite(loss_value):
-            print("Loss is {}, stopping training".format(loss_value))
+        if not math.isfinite(total_loss_value):
+            print("Total Loss is {}, stopping training".format(total_loss_value))
+            print("Pixel Loss is {}, stopping training".format(pixel_loss_value))
             sys.exit(1)
 
-        loss /= accum_iter
-        loss_scaler(loss, optimizer, parameters=model.parameters(),
+        total_loss /= accum_iter
+        loss_scaler(total_loss, optimizer, parameters=model.parameters(),
                     update_grad=(data_iter_step + 1) % accum_iter == 0)
         if (data_iter_step + 1) % accum_iter == 0:
             optimizer.zero_grad()
 
         torch.cuda.synchronize()
 
-        metric_logger.update(loss=loss_value)
+        metric_logger.update(loss=total_loss_value)
 
         lr = optimizer.param_groups[0]["lr"]
         metric_logger.update(lr=lr)
 
-        loss_value_reduce = misc.all_reduce_mean(loss_value)
+        total_loss_value_reduce = misc.all_reduce_mean(total_loss_value)
+        pixel_loss_value_reduce = misc.all_reduce_mean(pixel_loss_value)
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             """ We use epoch_1000x as the x-axis in tensorboard.
             This calibrates different curves when batch size changes.
             """
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
-            log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
+            log_writer.add_scalar('train_loss_total', total_loss_value_reduce, epoch_1000x)
+            log_writer.add_scalar('train_loss_pixel', pixel_loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
 
 
@@ -134,8 +142,12 @@ def evaluate(data_loader, model, device, log_writer, args=None):
         global_step += 1
         # compute output
         with torch.cuda.amp.autocast():
-            pred_img, loss = model(images_low_res, images_high_res, img_size_high_res = args.img_size_high_res) # --> tuple(loss, pred_imgs, masked_imgs)
+            pred_img, total_loss_one_input, pixel_loss_one_input, horizontal_cat, vertical_cat = model(images_low_res, 
+                                                                 images_high_res, 
+                                                                 img_size_high_res = args.img_size_high_res,
+                                                                 eval = True) # --> tuple(loss, pred_imgs, masked_imgs)
         # loss = criterion(pred_img, images_high_res)
+
             
         if log_writer is not None:
             images_high_res = images_high_res.permute(0, 2, 3, 1).squeeze()
@@ -155,6 +167,10 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             loss_low_res_part = loss_low_res_part.mean()
 
             pred_img[low_res_index, :] = images_low_res
+
+            # # Test with edge detector
+            # pred_edges = cv2.Canny((pred_img*255).astype(np.uint8), threshold1=30, threshold2=100)
+            # gt_edges = cv2.Canny((images_high_res*255).astype(np.uint8), threshold1=30, threshold2=100)
 
             # 3D Evaluation Metrics
             pcd_pred = img_to_pcd(pred_img)
@@ -188,27 +204,34 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                     vertices=pcd_all,
                     colors=pcd_all_color)
                 
-                point_cloud.export(os.path.join(pcd_outputpath, f"pred_gt_{local_step}.ply"))
-                local_step += 1
-                
+                point_cloud.export(os.path.join(pcd_outputpath, f"pred_gt_{local_step}.ply"))     
 
 
             images_high_res = scalarMap.to_rgba(images_high_res)[..., :3]
             pred_img = scalarMap.to_rgba(pred_img)[..., :3]
-
             # vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
             vis_grid = make_grid([torch.Tensor(images_high_res).permute(2, 0, 1), torch.Tensor(pred_img).permute(2, 0, 1)], nrow=1)
-            log_writer.add_image('gt - pred', vis_grid, global_step)
-            log_writer.add_scalar('Test/mse_all', loss.item(), global_step)
+            if args.edge_loss:
+                vis_grid_horizontal = make_grid(horizontal_cat, nrow=1)
+                # vis_grid_vertical= make_grid(vertical_cat, nrow=1)
+                log_writer.add_image('gt - pred (horizontal)', vis_grid_horizontal, local_step)
+                # log_writer.add_image('gt - pred (vertical)', vis_grid_vertical, local_step)
+                log_writer.add_scalar('Test/total_mse_all', total_loss_one_input.item(), local_step)
+            # vis_grid_egde = make_grid([torch.Tensor(np.expand_dims(gt_edges / 255, axis = -1)).permute(2, 0, 1), torch.Tensor(np.expand_dims(pred_edges / 255, axis = -1)).permute(2, 0, 1)], nrow=1)
+            log_writer.add_image('gt - pred', vis_grid, local_step)
+            # log_writer.add_image('gt - pred (edges)', vis_grid_egde, local_step)
+            log_writer.add_scalar('Test/mse_all', pixel_loss_one_input.item(), local_step)
 
-            log_writer.add_scalar('Test/mse_low_res', loss_low_res_part, global_step)
-            log_writer.add_scalar('Test/chamfer_dist', chamfer_dist, global_step)
-            log_writer.add_scalar('Test/iou', iou, global_step)
-            log_writer.add_scalar('Test/precision', precision, global_step)
-            log_writer.add_scalar('Test/recall', recall, global_step)
+            log_writer.add_scalar('Test/mse_low_res', loss_low_res_part, local_step)
+            log_writer.add_scalar('Test/chamfer_dist', chamfer_dist, local_step)
+            log_writer.add_scalar('Test/iou', iou, local_step)
+            log_writer.add_scalar('Test/precision', precision, local_step)
+            log_writer.add_scalar('Test/recall', recall, local_step)
+
+            local_step += 1
         
         
-        total_loss += loss.item()
+        total_loss += pixel_loss_one_input.item()
     
     # results = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     avg_loss = total_loss / global_step

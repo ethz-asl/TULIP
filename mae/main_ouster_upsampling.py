@@ -70,6 +70,9 @@ def get_args_parser():
     parser.add_argument('--input_size', default=224, type=int,
                         help='images input size')
     
+    parser.add_argument('--edge_loss', action='store_true',
+                        help='Add edge loss')
+    
     parser.add_argument('--norm_pix_loss', action='store_true',
                         help='Use (per-patch) normalized pixels as targets for computing loss')
     parser.set_defaults(norm_pix_loss=False)
@@ -246,7 +249,8 @@ def main(args):
     model = swin_unet.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
                                                     patch_size = tuple(args.patch_size), 
                                                     in_chans = args.in_chans,
-                                                    window_size = args.window_size,)
+                                                    window_size = args.window_size,
+                                                    edge_loss = args.edge_loss,)
         
     # Load pretrained model
     if args.pretrain is not None:

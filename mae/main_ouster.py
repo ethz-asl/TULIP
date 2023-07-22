@@ -133,6 +133,7 @@ def get_args_parser():
     parser.add_argument('--mask_loss', action="store_true", help='Mask the loss value with no LiDAR return')
     parser.add_argument('--use_intensity', action="store_true", help='use the intensity as the second channel')
     parser.add_argument('--reverse_pixel_value', action="store_true", help='reverse the pixel value in the input')
+    parser.add_argument('--save_pcd', action="store_true", help='save pcd output in evaluation step')
     
 
     # Training parameters

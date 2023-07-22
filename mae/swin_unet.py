@@ -6,7 +6,7 @@ from einops import rearrange
 from typing import Optional
 
 from functools import partial
-
+from util.filter import *
 
 class DropPath(nn.Module):
     def __init__(self, drop_prob: float = 0.):
@@ -89,24 +89,35 @@ class PatchExpanding(nn.Module):
         self.dim = dim
         self.expand = nn.Linear(dim, 2 * dim, bias=False)
         self.norm = norm_layer(dim // 2)
+        # self.patch_size = patch_size
 
     def forward(self, x: torch.Tensor):
         x = self.expand(x)
+        # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=1, P2=4)
         x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=2, P2=2)
         x = self.norm(x)
         return x
 
 
 class FinalPatchExpanding(nn.Module):
-    def __init__(self, dim: int, norm_layer=nn.LayerNorm):
+    def __init__(self, dim: int, norm_layer=nn.LayerNorm, patch_size=tuple[int, int]):
         super(FinalPatchExpanding, self).__init__()
         self.dim = dim
+        # self.additional_factor = patch_size[0] * patch_size[1]
         self.expand = nn.Linear(dim, 16 * dim, bias=False)
+        # self.expand = nn.Linear(dim, 16 * dim, bias=False)
         self.norm = norm_layer(dim)
+        self.patch_size = patch_size
 
     def forward(self, x: torch.Tensor):
         x = self.expand(x)
-        x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=4, P2=4)
+        x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=1, 
+                                                                P2=16, 
+                                                                C = self.dim)
+        
+        # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=4,
+        #                                                         P2=4,
+        #                                                         C = self.dim)
         x = self.norm(x)
         return x
 
@@ -378,7 +389,7 @@ class SwinUnet(nn.Module):
     def __init__(self, img_size = (224, 224), patch_size = (4, 4), in_chans: int = 1, num_output_channel: int = 1, embed_dim: int = 96,
                  window_size: int = 4, depths: tuple = (2, 2, 6, 2), num_heads: tuple = (3, 6, 12, 24),
                  mlp_ratio: float = 4., qkv_bias: bool = True, drop_rate: float = 0., attn_drop_rate: float = 0.,
-                 drop_path_rate: float = 0.1, norm_layer=nn.LayerNorm, patch_norm: bool = True):
+                 drop_path_rate: float = 0.1, norm_layer=nn.LayerNorm, patch_norm: bool = True, edge_loss: bool = True):
         super().__init__()
 
         self.window_size = window_size
@@ -403,9 +414,15 @@ class SwinUnet(nn.Module):
         self.layers_up = self.build_layers_up()
         self.skip_connection_layers = self.skip_connection()
         self.norm_up = norm_layer(embed_dim)
-        self.final_patch_expanding = FinalPatchExpanding(dim=embed_dim, norm_layer=norm_layer)
+        self.final_patch_expanding = FinalPatchExpanding(dim=embed_dim, norm_layer=norm_layer, patch_size=patch_size)
         self.head = nn.Conv2d(in_channels=embed_dim, out_channels=num_output_channel, kernel_size=(1, 1), bias=False)
         self.apply(self.init_weights)
+
+        # egde detector and loss
+        self.edge_loss = edge_loss
+        if self.edge_loss:
+            self.vertical_edge_detector = VerticalEdgeDetectionCNN()
+            self.horizontal_edge_detector = HorizontalEdgeDetectionCNN()
 
     @staticmethod
     def init_weights(m):
@@ -464,46 +481,81 @@ class SwinUnet(nn.Module):
         return skip_connection_layers
     
     def forward_loss(self, pred, target):
+        
+
         loss = (pred - target) ** 2  
         loss = loss.mean()
+        pixel_loss = loss.clone()
 
-        return loss
+        if self.edge_loss:
+            # pred_edge_vertical = self.vertical_edge_detector(pred)
+            pred_edge_horizontal = self.horizontal_edge_detector(pred)
 
-    def forward(self, x, target, img_size_high_res):
+            # gt_edge_vertical = self.vertical_edge_detector(target)
+            gt_edge_horizontal = self.horizontal_edge_detector(target)
+
+
+            # vertical_edge_loss = (pred_edge_vertical - gt_edge_vertical) ** 2
+            horizontal_edge_loss = (pred_edge_horizontal - gt_edge_horizontal) ** 2
+
+            # loss = loss + 0.1 * vertical_edge_loss.mean() + 0.1 * horizontal_edge_loss.mean()
+            # loss = loss + 0.1 * vertical_edge_loss.mean()
+            loss = loss + 0.1 * horizontal_edge_loss.mean()
+
+
+            horizontal_cat = torch.cat([gt_edge_horizontal, pred_edge_horizontal], dim = 0)
+            # vertical_cat = torch.cat([gt_edge_vertical, pred_edge_vertical], dim = 0)
+            vertical_cat = None
+        
+        else:
+            horizontal_cat = None
+            vertical_cat = None
+            # loss = pixel_loss
+
+
+        return loss, pixel_loss, horizontal_cat, vertical_cat
+
+    def forward(self, x, target, img_size_high_res, eval = False):
         x = self.patch_embed(x) 
-
-    
         # Have to rearrange to the shape with H * H * C, otherwise the shape won't match in transformer
         x = x.contiguous().view((x.shape[0], int((x.shape[1] * x.shape[2])**0.5), int((x.shape[1] * x.shape[2])**0.5), x.shape[3]))
         x = self.pos_drop(x) 
 
         x_save = []
+        # print(x.shape)
         for i, layer in enumerate(self.layers):
             x_save.append(x)
             x = layer(x)
 
         x = self.first_patch_expanding(x)
 
+        # print(x.shape)
+
         for i, layer in enumerate(self.layers_up):
             x = torch.cat([x, x_save[len(x_save) - i - 2]], -1)
             x = self.skip_connection_layers[i](x)
             x = layer(x)
 
+            # print(x.shape)
+
         x = self.norm_up(x)
         x = self.final_patch_expanding(x)
-
 
         x = rearrange(x, 'B H W C -> B C H W')
 
         # Please consider reshape the image here again, as in transformer we always have the input with shape of B, H, H, C
         # for example, if 32*2048 range map as input
         # 32*2048 -> 16*1024 -> 128 * 128 -> 512*512 -> 128*2048
+
         x = x.contiguous().view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
         x = self.head(x.contiguous())
 
-        loss = self.forward_loss(x, target)
-
-        return x, loss
+        if eval:
+            total_loss, pixel_loss, horizontal_cat, vertical_cat = self.forward_loss(x, target)
+            return x, total_loss, pixel_loss, horizontal_cat, vertical_cat
+        else:
+            total_loss, pixel_loss, _, _  = self.forward_loss(x, target)
+            return x, total_loss, pixel_loss
 
 
 def swin_unet(**kwargs):

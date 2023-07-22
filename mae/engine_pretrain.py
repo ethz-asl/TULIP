@@ -18,6 +18,9 @@ from timm.utils import accuracy
 import util.misc as misc
 import util.lr_sched as lr_sched
 from torchvision.utils import make_grid
+import trimesh
+from util.evaluation import *
+from util.filter import *
 
 from pathlib import Path
 import os
@@ -124,6 +127,9 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 
     global_step = 0
     total_loss = 0
+    local_step = 0
+    grid_size = 0.1
+    is_low_res = (tuple(args.img_size)[0] < 128)
     # iterator = iter(data_loader)
     for batch in data_loader:
         images = batch[0] # (B=1, C, H, W)
@@ -169,12 +175,62 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                                     images[:, 1], pred_img[:, 1], masked_img[:, 1]], nrow=3, ncol=2)
                 log_writer.add_image('depth+intensity: gt - pred - mask', vis_grid, global_step)
             else:
-                images = images.permute(0, 3, 1, 2).squeeze()
-                pred_img = pred_img.permute(0, 3, 1, 2).squeeze()
-                masked_img = masked_img.permute(0, 3, 1, 2).squeeze()
+                images = images.permute(0, 2, 3, 1).squeeze()
+                pred_img = pred_img.permute(0, 2, 3, 1).squeeze()
+                masked_img = masked_img.permute(0, 2, 3, 1).squeeze()
                 images = images.detach().cpu().numpy()
                 pred_img = pred_img.detach().cpu().numpy()
                 masked_img = masked_img.detach().cpu().numpy()
+
+
+                # We have to recover the full resolution to correctly back project the low resolution range map to point cloud
+                if is_low_res:
+                    low_res_index = range(0, 128, 128//images.shape[0])
+                    pred_img_high_res = np.zeros((128, images.shape[1]))
+                    gt_img_high_res = np.zeros((128, images.shape[1]))
+                    pred_img_high_res[low_res_index, :] = pred_img
+                    gt_img_high_res[low_res_index, :] = images
+
+                    # pred_img = pred_img_high_res
+                    # images = gt_img_high_res
+                else:
+                    pred_img_high_res = pred_img
+                    gt_img_high_res = images
+
+
+                pcd_pred = img_to_pcd(pred_img_high_res)
+                pcd_gt = img_to_pcd(gt_img_high_res)
+
+                pcd_all = np.vstack((pcd_pred, pcd_gt))
+
+                # chamfer_dist = chamfer_distance(pcd_gt, pcd_pred)
+                min_coord = np.min(pcd_all, axis=0)
+                max_coord = np.max(pcd_all, axis=0)
+                
+                # Voxelize the ground truth and prediction point clouds
+                voxel_grid_predicted = voxelize_point_cloud(pcd_pred, grid_size, min_coord, max_coord)
+                voxel_grid_ground_truth = voxelize_point_cloud(pcd_gt, grid_size, min_coord, max_coord)
+                # Calculate metrics
+                iou, precision, recall = calculate_metrics(voxel_grid_predicted, voxel_grid_ground_truth)
+
+                if args.save_pcd:
+                    
+                    pcd_outputpath = os.path.join(args.output_dir, 'pcd')
+                    if not os.path.exists(pcd_outputpath):
+                        os.mkdir(pcd_outputpath)
+                    pcd_pred_color = np.zeros_like(pcd_pred)
+                    pcd_pred_color[:, 0] = 255
+                    pcd_gt_color = np.zeros_like(pcd_gt)
+                    pcd_gt_color[:, 2] = 255
+                    
+                    pcd_all_color = np.vstack((pcd_pred_color, pcd_gt_color))
+
+                    point_cloud = trimesh.PointCloud(
+                        vertices=pcd_all,
+                        colors=pcd_all_color)
+                    
+                    point_cloud.export(os.path.join(pcd_outputpath, f"pred_gt_{local_step}.ply"))
+                
 
                 images = scalarMap.to_rgba(images)[..., :3]
                 pred_img = scalarMap.to_rgba(pred_img)[..., :3]
@@ -184,9 +240,15 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                 masked_img[mask_for_masked_image,:] = [1, 1, 1]
 
                 # vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
-                vis_grid = make_grid([torch.Tensor(images).permute(2, 1, 0), torch.Tensor(pred_img).permute(2, 1, 0), torch.Tensor(masked_img).permute(2, 1, 0)], nrow=1)
-                log_writer.add_image('gt - pred - mask', vis_grid, global_step)
-            log_writer.add_scalar('Loss/test', loss.item(), global_step)
+                vis_grid = make_grid([torch.Tensor(images).permute(2, 0, 1), torch.Tensor(pred_img).permute(2, 0, 1), torch.Tensor(masked_img).permute(2, 0, 1)], nrow=1)
+                log_writer.add_image('gt - pred - mask', vis_grid, local_step)
+                # log_writer.add_scalar('Test/chamfer_dist', chamfer_dist, local_step)
+                log_writer.add_scalar('Test/iou', iou, local_step)
+                log_writer.add_scalar('Test/precision', precision, local_step)
+                log_writer.add_scalar('Test/recall', recall, local_step)
+
+            log_writer.add_scalar('Test/mae_all', loss.item(), local_step)
+            local_step += 1
             
         total_loss += loss.item()
     

@@ -103,6 +103,8 @@ def MC_drop(iterate_count=10):
 
         # Evaluate the loss of low resolution part
         loss_low_res_part = (pred[low_res_index, :] - gt[low_res_index, :]) ** 2
+
+
         loss_low_res_part = loss_low_res_part.mean()
 
         pred[low_res_index, :] = gt[low_res_index, :]
