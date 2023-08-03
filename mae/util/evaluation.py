@@ -136,6 +136,11 @@ def calculate_metrics(voxel_grid_predicted, voxel_grid_ground_truth):
 
     return iou, precision, recall
 
+def inverse_huber_loss(output, target):
+    absdiff = torch.abs(output-target)
+    C = 0.2*torch.max(absdiff).item()
+    return torch.where(absdiff < C, absdiff,(absdiff*absdiff+C*C)/(2*C))
+
 if __name__ == "__main__":
     point1 = np.random.uniform(0, 1, (100, 3))
     point2 = np.random.uniform(0, 1, (100, 3))

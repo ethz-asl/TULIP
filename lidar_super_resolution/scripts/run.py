@@ -8,14 +8,14 @@ from mae.util.evaluation import *
 
 
 wandb_disabled = False
-evaluation = True
-save_pcd = True
+evaluation = False
+save_pcd = False
 # project_name = "lidar_sr_network"
 project_name = "experiment_upsampling"
 entity = "biyang"
-run_name = "baseline_lidarSR"
-batch_size = 4
-epochs = 15
+run_name = "baseline_lidarSR_40epochs"
+batch_size = 8
+epochs = 1
 
 
 
@@ -30,27 +30,50 @@ wandb.init(project=project_name,
             sync_tensorboard=True)
 # wandb.config.update(tf.flags.FLAGS)
 
+# def data_generator(batch_size):
+#     while True:
+#         # replace the following line with code to load your data
+#         x, y = load_data_in_batches(batch_size)
+#         yield (x, y)
+
 def train():
     
-    # print('Load training data...  ')
+    print('Load training data...  ')
     training_data_input, training_data_pred_ground_truth = load_train_data()
 
-    # print('Compiling model...     ')
+    
+
+    # train_dataset = tf.data.Dataset.from_tensor_slices((training_data_input, training_data_pred_ground_truth))
+    # dataset = tf.data.Dataset.from_tensor_slices((features, labels))
+
+    # del training_data_input, training_data_pred_ground_truth
+    # import gc
+    # gc.collect()
+
+    # Shuffle and batch the dataset
+    # batch_size = batch_size  # You can adjust this value
+    # train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size)
+    # print(training_data_input.shape)
+    # print(training_data_pred_ground_truth.shape)
+    
+    print('Compiling model...     ')
     model, model_checkpoint, tensorboard = get_model('training')
 
-    # print('Training model...      ')
+    print('Training model...      ')
     model.fit(
               training_data_input,
               training_data_pred_ground_truth,
+            #   train_dataset,
               batch_size=batch_size,
-              validation_split=0.1,
+            #   validation_split=0.1,
               epochs=epochs,
               verbose=1,
+              workers=4,
               shuffle=True,
               callbacks=[model_checkpoint, tensorboard]
              )
 
-    
+    print('Saving checkpoint')
     # checkpoint_dir = os.path.dirname(checkpoint_path)
     # model.save(weight_name)
     model.save_weights(checkpoint_path)
@@ -59,6 +82,7 @@ def train():
 def MC_drop(iterate_count=10):
 
     test_data_input, test_data_gt = load_test_data()
+    print(test_data_input.max(), test_data_gt.max())
     # load model
     model, _, _ = get_model('testing')
     print(checkpoint_path)
@@ -92,8 +116,8 @@ def MC_drop(iterate_count=10):
     local_step = 0
     grid_size = 0.1
     for i, (gt, pred) in enumerate(zip(test_data_gt, test_data_prediction)):
-        if i % 4 != 0:
-            continue
+        # if i % 4 != 0:
+        #     continue
         pred = pred[..., 0:1]
         noise_variance = pred[..., 1:2]
         pred[noise_variance > pred * 0.03] = 0
@@ -115,6 +139,8 @@ def MC_drop(iterate_count=10):
 
         pcd_pred = img_to_pcd(pred)
         pcd_gt = img_to_pcd(gt)
+
+        print(pcd_pred.shape)
 
         # print(pcd_pred.shape, pcd_gt.shape)
 

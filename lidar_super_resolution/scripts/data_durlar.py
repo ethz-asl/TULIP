@@ -1,5 +1,5 @@
 import os
-from PIL import Image
+# from PIL import Image
 import numpy as np
 
 # from torchvision import transforms
@@ -53,15 +53,16 @@ def pre_processing_raw_data(data_set_name, is_train = False):
     # full_res_data = np.array([np.array(Image.open(os.path.join(data_set_name, fname))).astype(np.float32) for fname in image_files])
 
     full_res_data = np.load(data_set_name)
-    full_res_data = full_res_data.astype(np.float32, copy=True)
-    full_res_data /= 255
-
+    # full_res_data = full_res_data.astype(np.float32, copy=True)
+    full_res_data = full_res_data.astype(np.float16)
     # add gaussian noise for [CARLA] data
     if is_train:
+        full_res_data /= 255
         print('add noise ...')
-        noise = np.random.normal(0, sensor_noise, full_res_data.shape) # mu, sigma, size
-        noise[full_res_data == 0] = 0
-        full_res_data = full_res_data + noise
+        # noise = np.random.normal(0, sensor_noise, full_res_data.shape) # mu, sigma, size
+        # noise[full_res_data == 0] = 0
+        # full_res_data = full_res_data + noise
+        print('noise added')
     return full_res_data
 
 
@@ -72,6 +73,7 @@ def get_low_res_from_high_res(high_res_data):
 
 def load_train_data():
     train_data = pre_processing_raw_data(training_data_path, is_train=True)
+    print('get low res data')
     train_data_input = get_low_res_from_high_res(train_data)
     return train_data_input, train_data
 

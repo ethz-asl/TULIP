@@ -8,28 +8,31 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 args=(
     --batch_size 8
-    --epochs 20
+    --epochs 60
     --num_workers 2
-    --lr 5e-3
+    --lr 5e-4
     --weight_decay 0.0005
+    --warmup_epochs 10
     # Model parameters
-    # --eval
+    --eval
     --model_select swin_unet
     # --edge_loss
-    --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/linemasking_curriculum_learning/checkpoint-19.pth
+    # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/linemasking_075_log_transform/checkpoint-59.pth
     # Dataset
     --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large_low_res
     # --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
     --data_path_high_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
+    # --log_transform
+    --keep_close_scan
     --save_pcd
     # WandB Parameters
-    --run_name linemasking_curriculum_learning
+    --run_name linemasking_075_60epochs_nopretrain_l1loss_30meters
     --entity biyang
     # --wandb_disabled
     # --project_name swin_mae_lowres_durlar
     --project_name experiment_upsampling
     # --wandb_disabled
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling/linemasking_curriculum_learning
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling/linemasking_075_60epochs_nopretrain_l1loss_30meters
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048

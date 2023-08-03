@@ -154,9 +154,30 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             images_low_res = images_low_res.permute(0, 2, 3, 1).squeeze()
             pred_img = pred_img.permute(0, 2, 3, 1).squeeze()
 
+            
+
             images_high_res = images_high_res.detach().cpu().numpy()
             pred_img = pred_img.detach().cpu().numpy()
             images_low_res = images_low_res.detach().cpu().numpy()
+            # print(images_high_res.max())
+            # exit(0)
+
+            if args.log_transform:
+                images_high_res = np.expm1(images_high_res)
+                pred_img = np.expm1(pred_img)
+                images_low_res = np.expm1(images_low_res)
+
+
+            # # Test Logarithm Transformation
+
+            # all_pixels = images_high_res.reshape(-1)
+            # log_pixels = np.log1p(all_pixels + 1e-8)
+            # # Creating the histogram
+            # plt.hist(all_pixels, bins=30, edgecolor='black')
+            # plt.hist(log_pixels, bins=30, edgecolor='red')
+            # plt.savefig('data_distribution.png')
+
+            # exit(0)
 
             # Keep the pixel values in low resolution image
             low_res_index = range(0, h_high_res, downsampling_factor)
@@ -206,6 +227,7 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                 
                 point_cloud.export(os.path.join(pcd_outputpath, f"pred_gt_{local_step}.ply"))     
 
+            # exit(0)
 
             images_high_res = scalarMap.to_rgba(images_high_res)[..., :3]
             pred_img = scalarMap.to_rgba(pred_img)[..., :3]

@@ -39,7 +39,7 @@ K.set_floatx('float32')
 # Create Model 
 model_name = 'UNet'
 # case_name = model_name + '-mae-' + data_set + '-from-' + str(image_rows_low) + '-to-' + str(image_rows_high)
-case_name = "baseline_15epochs"
+case_name = "baseline_40epochs"
 
 # automatically generate log and weight path
 log_path = os.path.join(root_dir, 'logs', case_name)
@@ -141,6 +141,7 @@ def UNet():
 
     model.compile(
         optimizer=Adam(learning_rate=0.0001, decay=0.00001),
+        # optimizer=Adam(learning_rate=0.0001, decay=0.00001),
         loss='mae',
         metrics = ["mae", "mse"]
     )
@@ -163,11 +164,14 @@ def create_case_dir(type_name):
     os.system('killall tensorboard')
     # create tensorboard checkpoint
     if type_name == 'training':
+        print('Checkpoint')
         model_checkpoint = ModelCheckpoint(checkpoint_path, save_best_only=True, save_freq='epoch')
+        print('Tensorboard')
         tensorboard = TensorBoard(log_dir=log_path)
         # run tensorboard
-        command = 'tensorboard --logdir=' + os.path.join(root_dir, 'logs') + ' &'
-        os.system(command)
+
+# '        command = 'tensorboard --logdir=' + os.path.join(root_dir, 'logs') + ' &'
+        # os.system(command)'
         # delete old log files
         for the_file in os.listdir(log_path):
             file_path = os.path.join(log_path, the_file)

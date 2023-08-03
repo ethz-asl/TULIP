@@ -1,0 +1,9 @@
+# https://github.com/pytorch/pytorch/issues/29745#issuecomment-553588171
+--find-links https://download.pytorch.org/whl/cu113/torch_stable.html
+
+einops==0.4.1
+matplotlib==3.5.1
+numpy==1.22.3
+PyYAML==6.0
+torch==1.11.0+cu113
+tqdm==4.63.0

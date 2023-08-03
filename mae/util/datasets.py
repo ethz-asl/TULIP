@@ -48,6 +48,31 @@ class AddGaussianNoise(torch.nn.Module):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(size={self.size})"
+    
+
+class LogTransform(object):
+    def __call__(self, tensor):
+        return torch.log1p(tensor)
+    
+
+class KeepCloseScan(object):
+    def __init__(self, max_dist):
+        self.max_dist = max_dist
+    def __call__(self, tensor):
+        return torch.where(tensor < self.max_dist, tensor, 0)
+    
+class KeepFarScan(object):
+    def __init__(self, min_dist):
+        self.min_dist = min_dist
+    def __call__(self, tensor):
+        return torch.where(tensor > self.min_dist, tensor, 0)
+
+
+class ScaleTensor(object):
+    def __init__(self, scale_factor):
+        self.scale_factor = scale_factor
+    def __call__(self, tensor):
+        return tensor*self.scale_factor
 
 
 class ConcatDataset(torch.utils.data.Dataset):
@@ -64,6 +89,20 @@ class ConcatDataset(torch.utils.data.Dataset):
 def build_durlar_upsampling_dataset(is_train, args):
     t_low_res = [transforms.Grayscale(), transforms.ToTensor()]
     t_high_res = [transforms.Grayscale(), transforms.ToTensor()]
+    if args.keep_close_scan and args.keep_far_scan:
+        print("Cannot mask out far and close pixels at the same time, please check the arguments")
+    if args.keep_far_scan:
+        t_low_res.append(KeepFarScan(min_dist=50/200))
+        t_high_res.append(KeepFarScan(max_dist=50/200))
+    if args.keep_close_scan:
+        # Max Distance as 50 m
+        t_low_res.append(KeepCloseScan(max_dist=30/200))
+        t_high_res.append(KeepCloseScan(max_dist=30/200))
+    if args.log_transform:
+        # t_low_res.append(ScaleTensor(scale_factor=5/3))
+        # t_high_res.append(ScaleTensor(scale_factor=5/3))
+        t_low_res.append(LogTransform())
+        t_high_res.append(LogTransform())
     if args.crop:
         t_low_res.append(transforms.CenterCrop(args.img_size_low_res))
         t_high_res.append(transforms.CenterCrop(args.img_size_high_res))
@@ -104,10 +143,13 @@ def build_durlar_dataset(is_train, args):
     #              transforms.RandomVerticalFlip(p=0.5),
     #              transforms.RandomHorizontalFlip(p=0.5),])
 
+    if args.log_transform:
+        t.append(LogTransform())
     transform = transforms.Compose(t)
     root = os.path.join(args.data_path, 'train' if is_train else 'val')
 
     root = os.path.join(root, 'depth')
+    # root = os.path.join(root, 'intensity')
     dataset = ImageDataset(root, transform=transform)
 
     return dataset

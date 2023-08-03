@@ -1,0 +1,17 @@
+<launch>
+    <!-- Arguments -->
+    <arg name="checkpoint_filename" default="$(find implicit_lidar_network)/python_src/models/trained/iln_1d_400.pth" />
+    <arg name="lidar_config" default="$(find implicit_lidar_network)/samples/kitti_16ch_lidar_configuration.yaml" />
+    <arg name="target_resolution" default="64_1024" />
+    <arg name="input_filename" default="$(find implicit_lidar_network)/samples/sample.rimg">
+
+    <!-- RViz -->
+    <node pkg="rviz" type="rviz" name="rviz" args="-d $(find implicit_lidar_network)/rviz/demo_lidar_super_resolution_ros.rviz" />
+
+    <!-- Example -->
+    <node pkg="implicit_lidar_network" type="demo_lidar_super_resolution_ros.py" name="demo_lidar_super_resolution_ros" output="screen"
+          args="-cp $(arg checkpoint_filename) -l $(arg lidar_config) -r $(arg target_resolution) -i $(arg input_filename)" >
+        <remap from="/pointcloud_in" to="/velodyne"/>
+    </node>
+
+</launch>
