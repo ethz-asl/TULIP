@@ -131,6 +131,8 @@ def evaluate(data_loader, model, device, log_writer, args=None):
     grid_size = 0.1
     is_low_res = (tuple(args.img_size)[0] < 128)
     # iterator = iter(data_loader)
+
+    # test_data = []
     for batch in data_loader:
         images = batch[0] # (B=1, C, H, W)
 
@@ -152,6 +154,9 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             loss = output[0]
             pred_img = output[1] # (B=1, C, H, W)
             masked_img = output[2] # (B=1, C, H, W) B: Batch Size, N_MASK: Number of masks H*W/(patch_size*patch_size)
+
+            
+                
             
             # if not args.reverse_pixel_value:
             #     # If not revers the pixel value in input data, then make it for visualization
@@ -181,6 +186,16 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                 images = images.detach().cpu().numpy()
                 pred_img = pred_img.detach().cpu().numpy()
                 masked_img = masked_img.detach().cpu().numpy()
+
+                # test_data.append(images.astype(np.float32))
+                # continue
+
+                if args.log_transform:
+                    images = np.expm1(images)
+                    pred_img = np.expm1(pred_img)
+                    mask = (masked_img == 1)
+                    masked_img = np.expm1(masked_img)
+                    masked_img[mask] = 1
 
 
                 # We have to recover the full resolution to correctly back project the low resolution range map to point cloud
@@ -252,6 +267,10 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             
         total_loss += loss.item()
     
+    # test_data = np.array(test_data)
+    # print(test_data.shape)
+    # np.save("/cluster/work/riner/users/biyang/dataset/depth_large_test.npy", test_data)
+    # exit(0)
     # results = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     avg_loss = total_loss / global_step
     if log_writer is not None:

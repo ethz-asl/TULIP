@@ -8,6 +8,8 @@ from typing import Optional
 from functools import partial
 from util.filter import *
 
+from util.evaluation import inverse_huber_loss
+
 class DropPath(nn.Module):
     def __init__(self, drop_prob: float = 0.):
         super().__init__()
@@ -111,13 +113,13 @@ class FinalPatchExpanding(nn.Module):
 
     def forward(self, x: torch.Tensor):
         x = self.expand(x)
-        x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=1, 
-                                                                P2=16, 
-                                                                C = self.dim)
-        
-        # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=4,
-        #                                                         P2=4,
+        # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=1, 
+        #                                                         P2=16, 
         #                                                         C = self.dim)
+        
+        x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=4,
+                                                                P2=4,
+                                                                C = self.dim)
         x = self.norm(x)
         return x
 
@@ -482,8 +484,16 @@ class SwinUnet(nn.Module):
     
     def forward_loss(self, pred, target):
         
+        ## l2
+        # loss = (pred - target) ** 2  
+        ## l1
+        loss = (pred - target).abs()
 
-        loss = (pred - target) ** 2  
+        ## inverse huber loss
+        # loss = inverse_huber_loss(pred, target)
+
+        # Smooth L1 Loss
+        # loss = func.smooth_l1_loss(pred, target, reduction='none')
         loss = loss.mean()
         pixel_loss = loss.clone()
 
@@ -496,7 +506,7 @@ class SwinUnet(nn.Module):
 
 
             # vertical_edge_loss = (pred_edge_vertical - gt_edge_vertical) ** 2
-            horizontal_edge_loss = (pred_edge_horizontal - gt_edge_horizontal) ** 2
+            horizontal_edge_loss = (pred_edge_horizontal - gt_edge_horizontal).abs()
 
             # loss = loss + 0.1 * vertical_edge_loss.mean() + 0.1 * horizontal_edge_loss.mean()
             # loss = loss + 0.1 * vertical_edge_loss.mean()

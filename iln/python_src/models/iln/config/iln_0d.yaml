@@ -1,0 +1,23 @@
+dataset:
+  name: Carla
+  type: range_samples_from_image
+  args:
+    directory: ./dataset/Carla
+    scene_ids:
+      - Town01
+      - Town02
+      - Town03
+      - Town04
+      - Town05
+      - Town06
+    res_in: '16_1024'
+    res_out: '128_2048'
+    num_of_samples: 16384
+    memory_fetch: false
+
+model:
+  name: iln
+  output: ./models/trained/iln_0d
+  args:
+    d: 0
+    h: 8

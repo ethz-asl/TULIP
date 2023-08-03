@@ -224,15 +224,12 @@ class SwinMAE(nn.Module):
         # # unnoise_mask[x != 0] = 1
         # # noise[unnoise_mask] = 0
         # x = x + noise.to(x.device)
-
         x = self.patch_embed(x)
         x, mask = self.window_masking(x, remove=remove, mask_len_sparse=False, mask_ratio=mask_ratio)
+        
         for layer in self.layers:
-            # print("Layer ", str(i), " : ", x.shape)
             x = layer(x)
 
-
-        # exit(0)
         return x, mask
 
     def forward_decoder(self, x):
@@ -264,7 +261,10 @@ class SwinMAE(nn.Module):
             var = target.var(dim=-1, keepdim=True)
             target = (target - mean) / (var + 1.e-6) ** .5
 
-        loss = (pred - target) ** 2   
+        # L2
+        loss = (pred - target) ** 2  
+        # L1
+        # loss = (pred - target).abs()
 
         # Mask the loss with LiDAR return
         if mask_loss:

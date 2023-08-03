@@ -1,0 +1,22 @@
+dataset:
+  name: Carla
+  type: range_images
+  args:
+    directory: ./dataset/Carla
+    scene_ids:
+      - Town01
+      - Town02
+      - Town03
+      - Town04
+      - Town05
+      - Town06
+    res_in: '16_1024'
+    res_out: '256_4096'
+    memory_fetch: false
+
+model:
+  name: lsr
+  output: ./models/trained/lsr_16h_4w
+  args:
+    scale_h: 16
+    scale_w: 4
