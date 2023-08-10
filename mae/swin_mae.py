@@ -173,6 +173,8 @@ class SwinMAE(nn.Module):
             x_masked = torch.clone(x)
             for i in range(B):
                 x_masked[i, index_mask.cpu().numpy()[i, :], :] = self.mask_token
+
+            # TODO: Check if we need to apply the grid_reshape here or not
             x_masked = rearrange(x_masked, 'B (H W) C -> B H W C', H=int(x_masked.shape[1] ** 0.5))
             return x_masked, mask
 

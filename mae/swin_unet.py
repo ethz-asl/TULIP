@@ -9,6 +9,7 @@ from functools import partial
 from util.filter import *
 
 from util.evaluation import inverse_huber_loss
+from util.datasets import grid_reshape, grid_reshape_backward
 
 class DropPath(nn.Module):
     def __init__(self, drop_prob: float = 0.):
@@ -32,9 +33,15 @@ class PatchEmbedding(nn.Module):
         super().__init__()
         self.img_size = img_size
         self.patch_size = patch_size
-        self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=patch_size, stride=patch_size)
+        # self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=patch_size, stride=patch_size)
+
+        # New Projection
+        self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=patch_size, stride=(1, 1))
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
-        self.grid_size = (img_size[0] // patch_size[0], img_size[1] // patch_size[1])
+        
+        # Have to change the grid size, now It should be the same size as the input resolution
+        # self.grid_size = (img_size[0] // patch_size[0], img_size[1] // patch_size[1])
+        self.grid_size = img_size
         self.num_patches = self.grid_size[0] * self.grid_size[1]
 
     def padding(self, x: torch.Tensor) -> torch.Tensor:
@@ -44,9 +51,20 @@ class PatchEmbedding(nn.Module):
                              0, self.patch_size[1] - H % self.patch_size[0],
                              0, 0))
         return x
+    
+    def circular_padding(self, x: torch.Tensor) -> torch.Tensor:
+
+        # Left side 1 padidng and right side 2 padding
+        x = func.pad(x, (1, 2), "circular")
+
+        return x
 
     def forward(self, x):
         x = self.padding(x)
+
+        # Circular Padding
+        x = self.circular_padding(x)
+
         x = self.proj(x)
         x = rearrange(x, 'B C H W -> B H W C')
         x = self.norm(x)
@@ -100,6 +118,8 @@ class PatchExpanding(nn.Module):
         x = self.norm(x)
         return x
 
+
+# TODO: Adjust the input and output size for new input shape
 
 class FinalPatchExpanding(nn.Module):
     def __init__(self, dim: int, norm_layer=nn.LayerNorm, patch_size=tuple[int, int]):
@@ -528,7 +548,10 @@ class SwinUnet(nn.Module):
     def forward(self, x, target, img_size_high_res, eval = False):
         x = self.patch_embed(x) 
         # Have to rearrange to the shape with H * H * C, otherwise the shape won't match in transformer
-        x = x.contiguous().view((x.shape[0], int((x.shape[1] * x.shape[2])**0.5), int((x.shape[1] * x.shape[2])**0.5), x.shape[3]))
+        # x = x.contiguous().view((x.shape[0], int((x.shape[1] * x.shape[2])**0.5), int((x.shape[1] * x.shape[2])**0.5), x.shape[3]))
+
+        # Grid Reshape
+        x = grid_reshape(x)
         x = self.pos_drop(x) 
 
         x_save = []
@@ -557,7 +580,9 @@ class SwinUnet(nn.Module):
         # for example, if 32*2048 range map as input
         # 32*2048 -> 16*1024 -> 128 * 128 -> 512*512 -> 128*2048
 
-        x = x.contiguous().view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
+        # x = x.contiguous().view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
+
+        x = grid_reshape_backward(x, img_size_high_res)
         x = self.head(x.contiguous())
 
         if eval:
