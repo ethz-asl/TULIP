@@ -324,7 +324,7 @@ class SwinTransformerBlockV2(nn.Module):
         return flops
 
 
-class PatchMerging(nn.Module):
+class PatchMergingV2(nn.Module):
     r""" Patch Merging Layer.
 
     Args:
@@ -574,7 +574,7 @@ class SwinTransformerV2(nn.Module):
                                drop=drop_rate, attn_drop=attn_drop_rate,
                                drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                                norm_layer=norm_layer,
-                               downsample=PatchMerging if (i_layer < self.num_layers - 1) else None,
+                               downsample=PatchMergingV2 if (i_layer < self.num_layers - 1) else None,
                                use_checkpoint=use_checkpoint,
                                pretrained_window_size=pretrained_window_sizes[i_layer])
             self.layers.append(layer)

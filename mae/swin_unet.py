@@ -9,7 +9,7 @@ from functools import partial
 from util.filter import *
 
 from util.evaluation import inverse_huber_loss
-from swin_transformer_v2 import SwinTransformerBlockV2
+from swin_transformer_v2 import SwinTransformerBlockV2, PatchMergingV2
 
 class DropPath(nn.Module):
     def __init__(self, drop_prob: float = 0.):
@@ -68,6 +68,7 @@ class PatchMerging(nn.Module):
         if H % 2 == 1 or W % 2 == 1:
             x = func.pad(x, (0, 0, 0, W % 2, 0, H % 2))
         return x
+    
 
     @staticmethod
     def merging(x: torch.Tensor) -> torch.Tensor:
@@ -309,22 +310,9 @@ class BasicBlockV2(nn.Module):
                 norm_layer=norm_layer)
             for i in range(depth)])
         
-
-        # input_resolution=(patches_resolution[0] // (2 ** i_layer),
-        #                                          patches_resolution[1] // (2 ** i_layer)),
-        #                        depth=depths[i_layer],
-        #                        num_heads=num_heads[i_layer],
-        #                        window_size=window_size,
-        #                        mlp_ratio=self.mlp_ratio,
-        #                        qkv_bias=qkv_bias,
-        #                        drop=drop_rate, attn_drop=attn_drop_rate,
-        #                        drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
-        #                        norm_layer=norm_layer,
-        #                        downsample=PatchMerging if (i_layer < self.num_layers - 1) else None,
-        #                        use_checkpoint=use_checkpoint,
-
         if patch_merging:
-            self.downsample = PatchMerging(dim=embed_dim * 2 ** index, norm_layer=norm_layer)
+            self.downsample = PatchMergingV2(input_resolution=input_resolution,
+                                             dim=dim, norm_layer=norm_layer)
         else:
             self.downsample = None
 
