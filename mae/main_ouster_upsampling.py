@@ -73,6 +73,9 @@ def get_args_parser():
     parser.add_argument('--edge_loss', action='store_true',
                         help='Add edge loss')
     
+    parser.add_argument('--pixel_shuffle', action='store_true',
+                        help='pixel shuffle upsampling head')
+    
     parser.add_argument('--norm_pix_loss', action='store_true',
                         help='Use (per-patch) normalized pixels as targets for computing loss')
     parser.set_defaults(norm_pix_loss=False)
@@ -253,7 +256,8 @@ def main(args):
                                                     patch_size = tuple(args.patch_size), 
                                                     in_chans = args.in_chans,
                                                     window_size = args.window_size,
-                                                    edge_loss = args.edge_loss,)
+                                                    edge_loss = args.edge_loss,
+                                                    pixel_shuffle = args.pixel_shuffle,)
         
     # Load pretrained model
     if args.pretrain is not None:

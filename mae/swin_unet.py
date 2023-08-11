@@ -122,26 +122,42 @@ class PatchExpanding(nn.Module):
 # TODO: Adjust the input and output size for new input shape
 
 class FinalPatchExpanding(nn.Module):
-    def __init__(self, dim: int, norm_layer=nn.LayerNorm, patch_size=tuple[int, int]):
+    def __init__(self, dim: int, norm_layer=nn.LayerNorm):
         super(FinalPatchExpanding, self).__init__()
         self.dim = dim
         # self.additional_factor = patch_size[0] * patch_size[1]
-        self.expand = nn.Linear(dim, 16 * dim, bias=False)
         # self.expand = nn.Linear(dim, 16 * dim, bias=False)
+        self.expand = nn.Linear(dim, 4 * dim, bias=False)
         self.norm = norm_layer(dim)
-        self.patch_size = patch_size
 
     def forward(self, x: torch.Tensor):
         x = self.expand(x)
-        # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=1, 
-        #                                                         P2=16, 
-        #                                                         C = self.dim)
         
-        x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=4,
-                                                                P2=4,
+        # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=4,
+        #                                                         P2=4,
+        #                                                         C = self.dim)
+        x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=2,
+                                                                P2=2,
                                                                 C = self.dim)
+        
         x = self.norm(x)
         return x
+    
+class PixelShuffleHead(nn.Module):
+    def __init__(self, dim: int, upscale_factor: int, norm_layer=nn.LayerNorm):
+        super(PixelShuffleHead, self).__init__()
+        self.dim = dim
+
+        self.conv_expand = nn.Conv2d(in_channels=dim, out_channels=upscale_factor**2, kernel_size=1)
+        self.upsample = nn.PixelShuffle(upscale_factor=upscale_factor)
+
+    def forward(self, x: torch.Tensor):
+        x = self.conv_expand(x)
+
+        x = self.upsample(x)
+     
+        return x
+        
 
 
 class Mlp(nn.Module):
@@ -411,7 +427,7 @@ class SwinUnet(nn.Module):
     def __init__(self, img_size = (224, 224), patch_size = (4, 4), in_chans: int = 1, num_output_channel: int = 1, embed_dim: int = 96,
                  window_size: int = 4, depths: tuple = (2, 2, 6, 2), num_heads: tuple = (3, 6, 12, 24),
                  mlp_ratio: float = 4., qkv_bias: bool = True, drop_rate: float = 0., attn_drop_rate: float = 0.,
-                 drop_path_rate: float = 0.1, norm_layer=nn.LayerNorm, patch_norm: bool = True, edge_loss: bool = True):
+                 drop_path_rate: float = 0.1, norm_layer=nn.LayerNorm, patch_norm: bool = True, edge_loss: bool = False, pixel_shuffle: bool = False):
         super().__init__()
 
         self.window_size = window_size
@@ -442,6 +458,9 @@ class SwinUnet(nn.Module):
 
         # egde detector and loss
         self.edge_loss = edge_loss
+        self.pixel_shuffle = pixel_shuffle
+        if self.pixel_shuffle:
+            self.pixel_shuffle_layer = PixelShuffleHead(upscale_factor=2)
         if self.edge_loss:
             self.vertical_edge_detector = VerticalEdgeDetectionCNN()
             self.horizontal_edge_detector = HorizontalEdgeDetectionCNN()
@@ -570,20 +589,23 @@ class SwinUnet(nn.Module):
             x = layer(x)
 
             # print(x.shape)
-
+        
         x = self.norm_up(x)
-        x = self.final_patch_expanding(x)
 
-        x = rearrange(x, 'B H W C -> B C H W')
+        if self.pixel_shuffle:
+            x = grid_reshape_backward(x, img_size_high_res)
+            x = self.pixel_shuffle_layer(x)
+        else:
+            x = self.final_patch_expanding(x)
+            x = rearrange(x, 'B H W C -> B C H W')
+            # Please consider reshape the image here again, as in transformer we always have the input with shape of B, H, H, C
+            # for example, if 32*2048 range map as input
+            # 32*2048 -> 16*1024 -> 128 * 128 -> 512*512 -> 128*2048
 
-        # Please consider reshape the image here again, as in transformer we always have the input with shape of B, H, H, C
-        # for example, if 32*2048 range map as input
-        # 32*2048 -> 16*1024 -> 128 * 128 -> 512*512 -> 128*2048
-
-        # x = x.contiguous().view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
-
-        x = grid_reshape_backward(x, img_size_high_res)
-        x = self.head(x.contiguous())
+            # x = x.contiguous().view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
+            # Grid Reshape
+            x = grid_reshape_backward(x, img_size_high_res)
+            x = self.head(x.contiguous())
 
         if eval:
             total_loss, pixel_loss, horizontal_cat, vertical_cat = self.forward_loss(x, target)
