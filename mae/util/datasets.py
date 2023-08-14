@@ -37,43 +37,47 @@ IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tif
 
 ## Add Gaussian Noise (sensor noise)
 
-def grid_reshape(img):
+def grid_reshape(img, params):
 
-    B, C, H, W = img.shape
+    H, W, C, num_grids, grid_size = params
 
-    num_grids = W // H 
-    grid_size = num_grids ** 0.5
-    assert grid_size == int(grid_size)
+    # B, H, W, C = img.shape
 
-    grid_size = int(grid_size)
+    # num_grids = W // H 
+    # grid_size = num_grids ** 0.5
+    # assert grid_size == int(grid_size)
 
-    new_img = torch.empty((B, C, grid_size * H, grid_size * H))
+    # grid_size = int(grid_size)
+
+    new_img = torch.empty((img.shape[0],  grid_size * H, grid_size * H, C), device = img.device)
 
     for i in range(num_grids):
         u = i // grid_size
         v = i % grid_size
-        new_img[:,:, u*H:(u+1)*H, v*H:(v+1)*H] = img[:, :, 0:H, i*H:(i+1)*H]
+        new_img[:,u*H:(u+1)*H, v*H:(v+1)*H, :] = img[:, 0:H, i*H:(i+1)*H,:]
 
     return new_img
 
 
-def grid_reshape_backward(img, target_img_size = (128, 2048)):
+def grid_reshape_backward(img, params):
 
-    B, C, _, _ = img.shape
-    H, W = target_img_size
+    H, W, C, num_grids, grid_size = params
 
-    num_grids = W // H
-    grid_size = num_grids ** 0.5
-    assert grid_size == int(grid_size)
+    # B, _, _, C = img.shape
+    # H, W = target_img_size
 
-    grid_size = int(grid_size)
+    # num_grids = W // H
+    # grid_size = num_grids ** 0.5
+    # assert grid_size == int(grid_size)
 
-    new_img = torch.empty((B, C, H, W))
+    # grid_size = int(grid_size)
+
+    new_img = torch.empty((img.shape[0], C, H, W), device=img.device)
 
     for i in range(num_grids):
         u = i // grid_size
         v = i % grid_size
-        new_img[:, :, 0:H, i*H:(i+1)*H] = img[:,:, u*H:(u+1)*H, v*H:(v+1)*H]
+        new_img[:, :, 0:H, i*H:(i+1)*H] = img[:, :, u*H:(u+1)*H, v*H:(v+1)*H]
 
     return new_img
 
