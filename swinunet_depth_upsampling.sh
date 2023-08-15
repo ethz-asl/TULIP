@@ -14,25 +14,25 @@ args=(
     --weight_decay 0.0005
     --warmup_epochs 10
     # Model parameters
-    --eval
-    --model_select swin_unet
+    # --eval
+    --model_select swin_unet_v2
     # --edge_loss
     # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/linemasking_075_log_transform/checkpoint-59.pth
     # Dataset
-    --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large_low_res
+    --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_middle_low_res
     # --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
-    --data_path_high_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
+    --data_path_high_res /cluster/work/riner/users/biyang/dataset/depth_intensity_middle
     # --log_transform
-    --keep_close_scan
-    --save_pcd
+    # --keep_close_scan
+    # --save_pcd
     # WandB Parameters
-    --run_name linemasking_075_60epochs_nopretrain_l1loss_30meters
+    --run_name test_swin_v2
     --entity biyang
     # --wandb_disabled
     # --project_name swin_mae_lowres_durlar
-    --project_name experiment_upsampling
+    --project_name experiment_upsampling_pt2
     # --wandb_disabled
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling/linemasking_075_60epochs_nopretrain_l1loss_30meters
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/test
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048

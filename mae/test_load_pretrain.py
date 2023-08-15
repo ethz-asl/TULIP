@@ -23,9 +23,8 @@ model = swin_unet_v2_pretrain(img_size = (32, 2048),
 # print(model)
 
 
-# pretrain_path = r"D:\Documents\ETH\Master_Thesis\swin_transformer_pretrain\swinv2_base_patch4_window8_256.pth"
-# pretrain_path = r"D:\Documents\ETH\Master_Thesis\swin_transformer_pretrain\swin_base_patch4_window7_224.pth"
-pretrain_path = r"D:\Documents\ETH\Master_Thesis\swin_transformer_pretrain\swinv2_small_patch4_window8_256.pth"
+# pretrain_path = "/cluster/work/riner/users/biyang/pretrained_mae/swinv2_base_patch4_window8_256.pth"
+pretrain_path = "/cluster/work/riner/users/biyang/pretrained_mae/swinv2_small_patch4_window8_256.pth"
 
 
 pretrain = torch.load(pretrain_path, map_location = torch.device('cpu'))

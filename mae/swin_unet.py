@@ -684,19 +684,17 @@ def swin_unet(**kwargs):
     return model
 
 
-def swin_unet_pretrain(**kwargs):
-    model = SwinUnet(
-        # patch_size=(4, 4),
-        depths=(2, 2, 2, 2), embed_dim=128, num_heads=(3, 6, 12, 24),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-        #  **kwargs)
-    return model
+# def swin_unet_pretrain(**kwargs):
+#     model = SwinUnet(
+#         # patch_size=(4, 4),
+#         depths=(2, 2, 2, 2), embed_dim=128, num_heads=(3, 6, 12, 24),
+#         qkv_bias=True, mlp_ratio=4,
+#         drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+#         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+#         #  **kwargs)
+#     return model
 
-
-
-def swin_unet_v2_pretrain(**kwargs):
+def swin_unet_v2(**kwargs):
     model = SwinUnet(
         # patch_size=(4, 4),
         depths=(2, 2, 2, 2), embed_dim=96 ,num_heads=(3, 6, 12, 24),
