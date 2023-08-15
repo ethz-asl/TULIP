@@ -2,7 +2,7 @@ import torch
 import os
 
 # import swin_mae
-from swin_unet import swin_unet, swin_unet_pretrain, swin_unet_v2_pretrain
+from swin_unet import swin_unet, swin_unet_v2
 
 
 
@@ -13,7 +13,7 @@ from swin_unet import swin_unet, swin_unet_pretrain, swin_unet_v2_pretrain
 #                                 edge_loss = False)
 
 
-model = swin_unet_v2_pretrain(img_size = (32, 2048),
+model = swin_unet_v2(img_size = (32, 2048),
                                 patch_size = (2, 2), 
                                 in_chans = 1,
                                 window_size = 8,

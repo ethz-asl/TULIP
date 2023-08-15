@@ -12,6 +12,8 @@ import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 import numpy as np
 
+from einops import rearrange
+
 
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
@@ -269,11 +271,13 @@ class SwinTransformerBlockV2(nn.Module):
 
     def forward(self, x):
         H, W = self.input_resolution
-        B, L, C = x.shape
-        assert L == H * W, "input feature has wrong size"
+
+        B = x.shape[0]
+        C = x.shape[-1]
+        # assert L == H * W, "input feature has wrong size"
 
         shortcut = x
-        x = x.view(B, H, W, C)
+        # x = x.view(B, H, W, C)
 
         # cyclic shift
         if self.shift_size > 0:
@@ -297,7 +301,8 @@ class SwinTransformerBlockV2(nn.Module):
             x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
         else:
             x = shifted_x
-        x = x.view(B, H * W, C)
+        # x = x.view(B, H * W, C)
+        # x = rearrange(x, 'B H W C -> B (H W) C', H=H, W=W)
         x = shortcut + self.drop_path(self.norm1(x))
 
         # FFN
@@ -344,8 +349,10 @@ class PatchMergingV2(nn.Module):
         """
         x: B, H*W, C
         """
-        # H, W = self.input_resolution
-        B, H, W, C = x.shape
+        H, W = self.input_resolution
+        # B, H, W, C = x.shape
+        B = x.shape[0]
+        C = x.shape[-1]
         # assert L == H * W, "input feature has wrong size"
         # assert H % 2 == 0 and W % 2 == 0, f"x size ({H}*{W}) are not even."
 
@@ -356,7 +363,8 @@ class PatchMergingV2(nn.Module):
         x2 = x[:, 0::2, 1::2, :]  # B H/2 W/2 C
         x3 = x[:, 1::2, 1::2, :]  # B H/2 W/2 C
         x = torch.cat([x0, x1, x2, x3], -1)  # B H/2 W/2 4*C
-        x = x.view(B, -1, 4 * C)  # B H/2*W/2 4*C
+        # x = x.view(B, -1, 4 * C)  # B H/2*W/2 4*C
+        x = x.view(B, H//2, W//2, 4 * C)  # B H/2 W/2 4*C
 
         x = self.reduction(x)
         x = self.norm(x)

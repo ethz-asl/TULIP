@@ -297,8 +297,9 @@ class BasicBlockV2(nn.Module):
         self.blocks = nn.ModuleList([
             SwinTransformerBlockV2(
                 dim=dim,
-                input_resolution = (input_resolution[0] // (2 ** i),
-                                    input_resolution[1] // (2 ** i)), 
+                # input_resolution = (input_resolution[0] // (2 ** i),
+                #                     input_resolution[1] // (2 ** i)), 
+                input_resolution = input_resolution,
                 num_heads=num_head,
                 window_size=window_size,
                 shift_size= 0 if (i % 2 == 0) else window_size // 2,
@@ -421,8 +422,9 @@ class BasicBlockUpV2(nn.Module):
         self.blocks = nn.ModuleList([
             SwinTransformerBlockV2(
                 dim=dim,
-                input_resolution = (input_resolution[0] * (2 ** i),
-                                    input_resolution[1] * (2 ** i)), 
+                # input_resolution = (input_resolution[0] * (2 ** i),
+                #                     input_resolution[1] * (2 ** i)), 
+                input_resolution = input_resolution,
                 num_heads=num_head,
                 window_size=window_size,
                 shift_size= 0 if (i % 2 == 0) else window_size // 2,
@@ -504,7 +506,8 @@ class SwinUnet(nn.Module):
         for i in range(self.num_layers):
             layer = BasicBlockV2(
                 index=i,
-                input_resolution=self.patch_embed.grid_size,
+                input_resolution=(int(self.patch_embed.num_patches**0.5) // (2**i),
+                                  int(self.patch_embed.num_patches**0.5) // (2**i)),
                 depths=self.depths,
                 embed_dim=self.embed_dim,
                 num_heads=self.num_heads,
@@ -524,8 +527,8 @@ class SwinUnet(nn.Module):
         for i in range(self.num_layers - 1):
             layer = BasicBlockUpV2(
                 index=i,
-                input_resolution=(self.patch_embed.grid_size[0] // (2**(self.num_layers -1)), 
-                                  self.patch_embed.grid_size[1] // (2**(self.num_layers -1))), 
+                input_resolution=(int(self.patch_embed.num_patches**0.5)// (2**(self.num_layers-2-i)),
+                                  int(self.patch_embed.num_patches**0.5)// (2**(self.num_layers-2-i))), 
                 depths=self.depths,
                 embed_dim=self.embed_dim,
                 num_heads=self.num_heads,
