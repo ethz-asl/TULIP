@@ -7,7 +7,7 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 
 args=(
-    --batch_size 8
+    --batch_size 16
     --epochs 60
     --num_workers 2
     --lr 5e-4
@@ -15,8 +15,8 @@ args=(
     --warmup_epochs 10
     # Model parameters
     # --eval
-    --pixel_shuffle
-    --circular_padding
+    # --pixel_shuffle
+    # --circular_padding
     --grid_reshape
     --model_select swin_unet
     # --edge_loss
@@ -29,19 +29,19 @@ args=(
     # --keep_close_scan
     # --save_pcd
     # WandB Parameters
-    --run_name grid_reshape+pixel_shuffle+circular_padding+ws4_ks116
+    --run_name grid_reshape_ws8_ks18_batchsize16x4
     --entity biyang
     # --wandb_disabled
     # --project_name swin_mae_lowres_durlar
     --project_name experiment_upsampling_pt2
     # --wandb_disabled
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/GridReshape_PixelShuffle_CircularPadding_ws4_ks116
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/GridReshape_ws8_ks18_batchsize16x4
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --input_size 128
-    --window_size 4
+    --window_size 8
     --patch_size 1 4
     --in_chans 1
     )
