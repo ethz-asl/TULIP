@@ -46,7 +46,8 @@ class PatchEmbedding(nn.Module):
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
         
         # Have to change the grid size, now It should be the same size as the input resolution
-        # self.grid_size = (img_size[0] // patch_size[0], img_size[1] // patch_size[1])
+        self.grid_size = (img_size[0] // patch_size[0], img_size[1] // patch_size[1])
+        self.num_patches = self.grid_size[0] * self.grid_size[1]
 
     def padding(self, x: torch.Tensor) -> torch.Tensor:
         _, _, H, W = x.shape
@@ -157,6 +158,9 @@ class PixelShuffleHead(nn.Module):
 
         self.conv_expand = nn.Sequential(nn.Conv2d(in_channels=dim, out_channels=dim*(upscale_factor**2), kernel_size=(1, 1)),
                                          nn.LeakyReLU(inplace=True))
+
+
+        # self.conv_expand = nn.Conv2d(in_channels=dim, out_channels=dim*(upscale_factor**2), kernel_size=(1, 1))
         self.upsample = nn.PixelShuffle(upscale_factor=upscale_factor)
         
 
@@ -605,10 +609,9 @@ class SwinUnet(nn.Module):
             x = rearrange(x, 'B H W C -> B C H W')
             x = self.pixel_shuffle_layer(x.contiguous())
             # Grid Reshape
-
             # (B, C, H, W)
             if self.grid_reshape:
-                x = grid_reshape_backward(x, self.params_output)
+                x = grid_reshape_backward(x, self.params_output, order="bchw")
             # Reshape
             else:
                 x = x.view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
@@ -618,16 +621,16 @@ class SwinUnet(nn.Module):
             x = self.final_patch_expanding(x)
             # x = grid_reshape_backward(x, img_size_high_res)
             x = rearrange(x, 'B H W C -> B C H W')
+            
             # Please consider reshape the image here again, as in transformer we always have the input with shape of B, H, H, C
             # for example, if 32*2048 range map as input
             # 32*2048 -> 16*1024 -> 128 * 128 -> 512*512 -> 128*2048
             if self.grid_reshape:
-                x = grid_reshape_backward(x, self.params_output)
+                x = grid_reshape_backward(x, self.params_output, order="bchw")
             # Reshape
-            else:
+            else: 
                 x = x.view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
-            # Grid Reshape
-
+            # Grid Reshape  
             x = self.head(x.contiguous())
 
         if eval:

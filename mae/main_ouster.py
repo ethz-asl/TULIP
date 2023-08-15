@@ -82,6 +82,10 @@ def get_args_parser():
 
     parser.add_argument('--norm_pix_loss', action='store_true',
                         help='Use (per-patch) normalized pixels as targets for computing loss')
+    parser.add_argument('--grid_reshape', action='store_true',
+                        help='grid reshape image')
+    parser.add_argument('--circular_padding', action='store_true',
+                        help='circular padding, kernel size is 1, 8 and stride is 1, 4')
     parser.set_defaults(norm_pix_loss=False)
     
     # Optimizer parameters
@@ -276,7 +280,9 @@ def main(args):
     elif args.model_select == "swin_mae":
         model = swin_mae.__dict__[args.model](img_size = tuple(args.img_size),
                                                      norm_pix_loss=args.norm_pix_loss,
-                                                     in_chans = args.in_chans,)
+                                                     in_chans = args.in_chans,
+                                                     circular_padding = args.circular_padding,
+                                                     grid_reshape = args.grid_reshape,)
         
     # Load pretrained model
     if args.pretrain is not None:

@@ -37,7 +37,7 @@ IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tif
 
 ## Add Gaussian Noise (sensor noise)
 
-def grid_reshape(img, params):
+def grid_reshape(img, params, order="bhwc"):
 
     H, W, C, num_grids, grid_size = params
 
@@ -48,18 +48,29 @@ def grid_reshape(img, params):
     # assert grid_size == int(grid_size)
 
     # grid_size = int(grid_size)
+    if order == "bhwc":
 
-    new_img = torch.empty((img.shape[0],  grid_size * H, grid_size * H, C), device = img.device)
+        new_img = torch.empty((img.shape[0],  grid_size * H, grid_size * H, C), device = img.device)
 
-    for i in range(num_grids):
-        u = i // grid_size
-        v = i % grid_size
-        new_img[:,u*H:(u+1)*H, v*H:(v+1)*H, :] = img[:, 0:H, i*H:(i+1)*H,:]
+        for i in range(num_grids):
+            u = i // grid_size
+            v = i % grid_size
+            new_img[:,u*H:(u+1)*H, v*H:(v+1)*H, :] = img[:, 0:H, i*H:(i+1)*H,:]
+
+    elif order == "bchw":
+        new_img = torch.empty((img.shape[0], C, grid_size * H, grid_size * H), device = img.device)
+
+        for i in range(num_grids):
+            u = i // grid_size
+            v = i % grid_size
+            new_img[:, :,u*H:(u+1)*H, v*H:(v+1)*H] = img[:, :,0:H, i*H:(i+1)*H]
+    
+    else:
+        raise NotImplementedError("the order for reshaping is not implemented")
 
     return new_img
 
-
-def grid_reshape_backward(img, params):
+def grid_reshape_backward(img, params, order="bhwc"):
 
     H, W, C, num_grids, grid_size = params
 
@@ -72,12 +83,20 @@ def grid_reshape_backward(img, params):
 
     # grid_size = int(grid_size)
 
-    new_img = torch.empty((img.shape[0], C, H, W), device=img.device)
-
-    for i in range(num_grids):
-        u = i // grid_size
-        v = i % grid_size
-        new_img[:, :, 0:H, i*H:(i+1)*H] = img[:, :, u*H:(u+1)*H, v*H:(v+1)*H]
+    if order == "bhwc":
+        new_img = torch.empty((img.shape[0], H, W, C), device=img.device)
+        for i in range(num_grids):
+            u = i // grid_size
+            v = i % grid_size
+            new_img[:, 0:H, i*H:(i+1)*H, :] = img[:, u*H:(u+1)*H, v*H:(v+1)*H, :]
+    elif order == "bchw":
+        new_img = torch.empty((img.shape[0], C , H, W), device=img.device)
+        for i in range(num_grids):
+            u = i // grid_size
+            v = i % grid_size
+            new_img[:, :, 0:H, i*H:(i+1)*H] = img[:, :, u*H:(u+1)*H, v*H:(v+1)*H]
+    else:
+        raise NotImplementedError("the order for reshaping is not implemented")
 
     return new_img
 

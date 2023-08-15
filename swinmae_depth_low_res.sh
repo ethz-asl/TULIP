@@ -18,20 +18,22 @@ args=(
     # Model parameters
     # --curriculum_learning
     --model_select swin_mae
-    --model swin_mae_patch2_base_line
+    --model swin_mae_patch2_base_line_ws8
+    --grid_reshape
+    --circular_padding
     # --eval
     # Dataset
     --data_path /cluster/work/riner/users/biyang/dataset/depth_intensity_large_low_res
-    --log_transform
+    # --log_transform
     # --save_pcd
     # --crop
     --loss_on_unmasked
     # WandB Parameters
-    --run_name linemasking_075_log_transform
+    --run_name grid_reshape+circular_padding+lowres_ws8_ks18
     --entity biyang
     --project_name swin_mae_lowres_durlar
     # --wandb_disabled
-    --output_dir ./experiment/durlar/LowRes/linemasking_075_log_transform
+    --output_dir ./experiment/durlar/LowRes/GridReshape_CircularPadding_ws8_ks18
     --mask_ratio 0.75
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     --img_size 32 2048

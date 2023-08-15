@@ -29,13 +29,13 @@ args=(
     # --keep_close_scan
     # --save_pcd
     # WandB Parameters
-    --run_name grid_reshape+pixel_shuffle+circ_padding_pixel_wise_embedding
+    --run_name grid_reshape+pixel_shuffle+circular_padding+ws4_ks116
     --entity biyang
     # --wandb_disabled
     # --project_name swin_mae_lowres_durlar
     --project_name experiment_upsampling_pt2
     # --wandb_disabled
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/GridReshape_PixelShuffle_CircularPadding_PixelWiseEmbedding
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/GridReshape_PixelShuffle_CircularPadding_ws4_ks116
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048
