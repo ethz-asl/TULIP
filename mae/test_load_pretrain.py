@@ -14,7 +14,7 @@ from swin_unet import swin_unet, swin_unet_v2
 
 
 model = swin_unet_v2(img_size = (32, 2048),
-                                patch_size = (2, 2), 
+                                patch_size = (4, 4), 
                                 in_chans = 1,
                                 window_size = 8,
                                 edge_loss = False)

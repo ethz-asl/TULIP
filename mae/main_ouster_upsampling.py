@@ -261,6 +261,13 @@ def main(args):
 
         print("Load pre-trained checkpoint from: %s" % args.pretrain)
         pretrain_model = pretrain['model']
+
+        state_dict = model.state_dict()
+        for k in ['head.weight', 'patch_embed.proj.weight']:
+            if k in pretrain_model and pretrain_model[k].shape != state_dict[k].shape:
+                print(f"Removing key {k} from pretrained checkpoint")
+                del pretrain_model[k]
+
         
         msg = model.load_state_dict(pretrain_model, strict=False)
         print(msg)

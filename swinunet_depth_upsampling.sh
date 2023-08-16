@@ -27,13 +27,13 @@ args=(
     # --keep_close_scan
     # --save_pcd
     # WandB Parameters
-    --run_name swin_v2_pretrain_imagenet
+    --run_name swin_v2_pretrain_imagenet_patchsize1x16
     --entity biyang
     # --wandb_disabled
     # --project_name swin_mae_lowres_durlar
     --project_name SwinTransformerV2
     # --wandb_disabled
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/SwinV2_Pretrain_ImageNet
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/SwinV2_Pretrain_ImageNet_patchsize1x16
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048
@@ -42,7 +42,7 @@ args=(
     # --window_size 4
     # --patch_size 1 4
     --window_size 8
-    --patch_size 2 2
+    --patch_size 1 16
     --in_chans 1
     # --img_size 224 224
     # --input_size 224
