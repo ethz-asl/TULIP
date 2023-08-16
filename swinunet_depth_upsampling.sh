@@ -7,7 +7,7 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 
 args=(
-    --batch_size 16
+    --batch_size 8
     --epochs 60
     --num_workers 2
     --lr 5e-4
