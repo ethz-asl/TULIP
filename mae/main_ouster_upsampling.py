@@ -51,6 +51,7 @@ def get_args_parser():
     # Pretrain parameters (MAE)
     parser.add_argument('--pretrain', default=None, type=str,
                         help='full path of pretrain model')
+    parser.add_argument('--pretrain_only_encoder', action='store_true', help="Only load pretrained weights of the encoder")
     parser.add_argument('--use_cls_token', action='store_true', help="Use CLS token in embedding")
 
     # Swin MAE parameters
@@ -272,7 +273,18 @@ def main(args):
 
         print("Load pre-trained checkpoint from: %s" % args.pretrain)
         pretrain_model = pretrain['model']
-        
+
+        # state_dict = model.state_dict()
+
+        # # if args.pretrain_only_encoder:
+        # print(pretrain_model.keys())
+
+        if args.pretrain_only_encoder:
+            for k in list(pretrain_model.keys()):
+                if k.__contains__('up'):
+                    print(f"Removing key {k} from pretrained checkpoint")
+                    del pretrain_model[k]
+            
         msg = model.load_state_dict(pretrain_model, strict=False)
         print(msg)
 

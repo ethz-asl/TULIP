@@ -7,7 +7,7 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 
 args=(
-    --batch_size 16
+    --batch_size 8
     --epochs 60
     --num_workers 2
     --lr 5e-4
@@ -15,12 +15,13 @@ args=(
     --warmup_epochs 10
     # Model parameters
     # --eval
-    # --pixel_shuffle
+    --pretrain_only_encoder
+    --pixel_shuffle
     # --circular_padding
     --grid_reshape
     --model_select swin_unet
     # --edge_loss
-    # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/linemasking_075_warmup_60epochs/checkpoint-59.pth
+    --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/GridReshape_ws4/checkpoint-59.pth
     # Dataset
     --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large_low_res
     # --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
@@ -29,19 +30,17 @@ args=(
     # --keep_close_scan
     # --save_pcd
     # WandB Parameters
-    --run_name grid_reshape_ws8_ks18_batchsize16x4
+    --run_name grid_reshape+pixel_shuffle+pretrain_only_encoder_ws4
     --entity biyang
     # --wandb_disabled
-    # --project_name swin_mae_lowres_durlar
     --project_name experiment_upsampling_pt2
-    # --wandb_disabled
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/GridReshape_ws8_ks18_batchsize16x4
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/GridReshape_PixelShuffle_PretrainOnlyEncoder_ws4
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --input_size 128
-    --window_size 8
+    --window_size 4
     --patch_size 1 4
     --in_chans 1
     )
