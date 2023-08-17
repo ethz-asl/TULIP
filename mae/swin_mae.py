@@ -5,7 +5,7 @@ import torch.nn as nn
 import numpy as np
 from einops import rearrange
 
-from swin_unet import PatchEmbedding, BasicBlock, PatchExpanding, BasicBlockUp
+from swin_unet import PatchEmbedding, BasicBlock, PatchExpanding, BasicBlockUp, BasicBlockUpV2, BasicBlockV2
 from util.pos_embed import get_2d_sincos_pos_embed
 import copy
 
@@ -20,7 +20,7 @@ class SwinMAE(nn.Module):
                  depths: tuple = (2, 2, 6, 2), embed_dim: int = 96, num_heads: tuple = (3, 6, 12, 24),
                  window_size: int = 7, qkv_bias: bool = True, mlp_ratio: float = 4.,
                  drop_path_rate: float = 0.1, drop_rate: float = 0., attn_drop_rate: float = 0.,
-                 norm_layer=None, patch_norm: bool = True):
+                 norm_layer=None, patch_norm: bool = True, swin_v2: bool = False):
         super().__init__()
         # self.mask_ratio = mask_ratio
         assert (img_size[0] % patch_size[0] == 0) and (img_size[1] % patch_size[1] == 0)
@@ -50,6 +50,13 @@ class SwinMAE(nn.Module):
         self.layers_up = self.build_layers_up()
         self.norm_up = norm_layer(embed_dim)
         self.decoder_pred = nn.Linear(decoder_embed_dim // 8, patch_size[0] * patch_size[1] * in_chans, bias=True)
+
+        if swin_v2:
+            self.layers = self.build_layers_v2()
+            self.layers_up = self.build_layers_up_v2()
+        else:
+            self.layers = self.build_layers()
+            self.layers_up = self.build_layers_up()
 
         self.initialize_weights()
 
@@ -175,6 +182,48 @@ class SwinMAE(nn.Module):
                 x_masked[i, index_mask.cpu().numpy()[i, :], :] = self.mask_token
             x_masked = rearrange(x_masked, 'B (H W) C -> B H W C', H=int(x_masked.shape[1] ** 0.5))
             return x_masked, mask
+
+    def build_layers_v2(self):
+        layers = nn.ModuleList()
+        for i in range(self.num_layers):
+            layer = BasicBlockV2(
+                index=i,
+                input_resolution=(int(self.patch_embed.num_patches**0.5) // (2**i),
+                                  int(self.patch_embed.num_patches**0.5) // (2**i)),
+                depths=self.depths,
+                embed_dim=self.embed_dim,
+                num_heads=self.num_heads,
+                drop_path=self.drop_path,
+                window_size=self.window_size,
+                mlp_ratio=self.mlp_ratio,
+                qkv_bias=self.qkv_bias,
+                drop_rate=self.drop_rate,
+                attn_drop_rate=self.attn_drop_rate,
+                norm_layer=self.norm_layer,
+                patch_merging=False if i == self.num_layers - 1 else True)
+            layers.append(layer)
+        return layers
+    
+    def build_layers_up_v2(self):
+        layers_up = nn.ModuleList()
+        for i in range(self.num_layers - 1):
+            layer = BasicBlockUpV2(
+                index=i,
+                input_resolution=(int(self.patch_embed.num_patches**0.5)// (2**(self.num_layers-2-i)),
+                                  int(self.patch_embed.num_patches**0.5)// (2**(self.num_layers-2-i))), 
+                depths=self.depths,
+                embed_dim=self.embed_dim,
+                num_heads=self.num_heads,
+                drop_path=self.drop_path,
+                window_size=self.window_size,
+                mlp_ratio=self.mlp_ratio,
+                qkv_bias=self.qkv_bias,
+                drop_rate=self.drop_rate,
+                attn_drop_rate=self.attn_drop_rate,
+                patch_expanding=True if i < self.num_layers - 2 else False,
+                norm_layer=self.norm_layer)
+            layers_up.append(layer)
+        return layers_up
 
     def build_layers(self):
         layers = nn.ModuleList()
@@ -437,6 +486,19 @@ def swin_mae_pacth2_ws4_dec192d(**kwargs):
         #  **kwargs)
     return model
 
+def swin_mae_line2_v2_ws4_dec768d(**kwargs):
+    model = SwinMAE(
+        patch_size=(1, 4),
+        window_size=4,
+        decoder_embed_dim=768,
+        depths=(2, 2, 2, 2), embed_dim=96 ,num_heads=(3, 6, 12, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), swin_v2=True, **kwargs)
+        #  **kwargs)
+    return model
+
+
 swin_mae_patch2_large = swin_mae_pacth2_ws4_dec768d_depth4422
 swin_mae_patch2_base = swin_mae_pacth2_ws4_dec768d
 swin_mae_patch2_base_line = swin_mae_line2_ws4_dec768d
@@ -445,3 +507,5 @@ swin_mae_patch2_tiny = swin_mae_pacth2_ws4_dec192d
 swin_mae_patch4_base = swin_mae_pacth4_ws4_dec768d
 swin_mae_patch4_small = swin_mae_pacth4_ws4_dec384d
 swin_mae_patch4_tiny = swin_mae_pacth4_ws4_dec192d
+
+swin_mae_v2_patch2_base_line = swin_mae_line2_v2_ws4_dec768d
