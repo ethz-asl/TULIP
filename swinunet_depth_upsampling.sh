@@ -15,15 +15,14 @@ args=(
     --warmup_epochs 10
     # Model parameters
     # --eval
-    --model_select swin_unet_v2
     # --edge_loss
+    --model_select swin_unet_v2
     # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/GridReshape_CircularPadding_ConvProjection_ws4/checkpoint-59.pth
-    --pretrain /cluster/work/riner/users/biyang/pretrained_mae/swinv2_small_patch4_window8_256.pth
-    --pretrain_only_encoder
+    # --pretrain /cluster/work/riner/users/biyang/pretrained_mae/swinv2_small_patch4_window8_256.pth
+    # --pretrain_only_encoder
     --pixel_shuffle
     --circular_padding
     --grid_reshape
-    --model_select swin_unet
     # Dataset
     --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large_low_res
     # --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
@@ -32,17 +31,17 @@ args=(
     # --keep_close_scan
     # --save_pcd
     # WandB Parameters
-    --run_name grid_reshape+pixel_shuffle+circularpadding+pretrain_onlyencoder_ws4
+    --run_name grid_reshape+pixel_shuffle+circularpadding+swinv2_ws8
     --entity biyang
     # --wandb_disabled
     --project_name experiment_upsampling_pt2
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/GridReshape_PixelShuffle_CircularPadding_PretrainOnlyEncoder_ws4
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/GridReshape_PixelShuffle_CircularPadding_Swinv2_ws8
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --input_size 128
-    --window_size 4
+    --window_size 8
     --patch_size 1 4
     # --window_size 8
     # --patch_size 4 4

@@ -136,10 +136,8 @@ class FinalPatchExpanding(nn.Module):
         super(FinalPatchExpanding, self).__init__()
         self.dim = dim
         # self.additional_factor = patch_size[0] * patch_size[1]
-        # self.expand = nn.Linear(dim, 16 * dim, bias=False)
         # Have to change for loading pretrain weights of ImageNet (input is 256x256, we have 128x128 after patch embedding)
-        self.expand = nn.Linear(dim, 64 * dim, bias=False)
-        # self.expand = nn.Linear(dim, 16 * dim, bias=False)
+        # self.expand = nn.Linear(dim, 64 * dim, bias=False)
         self.expand = nn.Linear(dim, 16 * dim, bias=False)
         self.norm = norm_layer(dim)
 

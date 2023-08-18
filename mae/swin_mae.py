@@ -332,7 +332,7 @@ class SwinMAE(nn.Module):
         
         if self.conv_projection:
             x = rearrange(x, 'B H W C -> B C H W')
-            x = self.decoder_pred(x) # B, h, w, ph*pw*1     
+            x = self.decoder_pred(x.contiguous()) # B, h, w, ph*pw*1     
             x = rearrange(x, 'B C H W -> B H W C')
             x = rearrange(x, 'B H W C -> B (H W) C')
         else:
