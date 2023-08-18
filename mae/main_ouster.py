@@ -86,6 +86,8 @@ def get_args_parser():
                         help='grid reshape image')
     parser.add_argument('--circular_padding', action='store_true',
                         help='circular padding, kernel size is 1, 8 and stride is 1, 4')
+    parser.add_argument('--conv_projection', action='store_true',
+                        help='use a conv2d layer for the final decoder projection instead of a linear layer')
     parser.set_defaults(norm_pix_loss=False)
     
     # Optimizer parameters
@@ -282,7 +284,8 @@ def main(args):
                                                      norm_pix_loss=args.norm_pix_loss,
                                                      in_chans = args.in_chans,
                                                      circular_padding = args.circular_padding,
-                                                     grid_reshape = args.grid_reshape,)
+                                                     grid_reshape = args.grid_reshape,
+                                                     conv_projection = args.conv_projection,)
         
     # Load pretrained model
     if args.pretrain is not None:

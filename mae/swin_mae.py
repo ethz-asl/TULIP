@@ -5,7 +5,7 @@ import torch.nn as nn
 import numpy as np
 from einops import rearrange
 
-from swin_unet import PatchEmbedding, BasicBlock, PatchExpanding, BasicBlockUp
+from swin_unet import PatchEmbedding, BasicBlock, PatchExpanding, BasicBlockUp, PixelShuffleHead
 from util.pos_embed import get_2d_sincos_pos_embed
 from util.datasets import grid_reshape, grid_reshape_backward
 import copy
@@ -21,7 +21,7 @@ class SwinMAE(nn.Module):
                  depths: tuple = (2, 2, 6, 2), embed_dim: int = 96, num_heads: tuple = (3, 6, 12, 24),
                  window_size: int = 7, qkv_bias: bool = True, mlp_ratio: float = 4.,
                  drop_path_rate: float = 0.1, drop_rate: float = 0., attn_drop_rate: float = 0.,
-                 norm_layer=None, patch_norm: bool = True, circular_padding: bool = False, grid_reshape: bool = False,):
+                 norm_layer=None, patch_norm: bool = True, circular_padding: bool = False, grid_reshape: bool = False, conv_projection: bool = False):
         super().__init__()
         # self.mask_ratio = mask_ratio
         assert (img_size[0] % patch_size[0] == 0) and (img_size[1] % patch_size[1] == 0)
@@ -50,7 +50,15 @@ class SwinMAE(nn.Module):
         self.first_patch_expanding = PatchExpanding(dim=decoder_embed_dim, norm_layer=norm_layer)
         self.layers_up = self.build_layers_up()
         self.norm_up = norm_layer(embed_dim)
-        self.decoder_pred = nn.Linear(decoder_embed_dim // 8, patch_size[0] * patch_size[1] * in_chans, bias=True)
+
+        self.conv_projection = conv_projection
+        # Pixel Shuffle is conv based projection, maybe we should also match the projection in pretraining stage, I would use a pixel shuffle head for the projection as well
+        if conv_projection:
+            # self.ps_head = PixelShuffleHead(dim = decoder_embed_dim // 8, upscale_factor= int(patch_size[0] * patch_size[1]))
+            self.decoder_pred = nn.Conv2d(in_channels = decoder_embed_dim // 8, out_channels = patch_size[0] * patch_size[1] * in_chans, kernel_size = (1, 1), bias=False)
+        else:
+            self.decoder_pred = nn.Linear(decoder_embed_dim // 8, patch_size[0] * patch_size[1] * in_chans, bias=True)
+        
 
         self.initialize_weights()
 
@@ -270,13 +278,15 @@ class SwinMAE(nn.Module):
 
         if self.grid_reshape:
             x = grid_reshape_backward(x, params=self.params_output)
+        
+        if self.conv_projection:
+            x = rearrange(x, 'B H W C -> B C H W')
+            x = self.decoder_pred(x) # B, h, w, ph*pw*1     
+            x = rearrange(x, 'B C H W -> B H W C')
             x = rearrange(x, 'B H W C -> B (H W) C')
         else:
             x = rearrange(x, 'B H W C -> B (H W) C')
-
-        x = self.decoder_pred(x) # B, H*W/num_patchs, num_patchs
-
-
+            x = self.decoder_pred(x) # B, H*W/num_patchs, num_patchs
         return x
 
     def forward_loss(self, imgs, pred, mask, mask_loss = False, loss_on_unmasked = False):

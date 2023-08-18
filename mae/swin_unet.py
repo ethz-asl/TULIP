@@ -169,6 +169,26 @@ class PixelShuffleHead(nn.Module):
         x = self.upsample(x)
      
         return x
+    
+
+class HybridPixelShuffleHead(nn.Module):
+    def __init__(self, dim: int, upscale_factor: int, downscale_factor: int):
+        super(HybridPixelShuffleHead, self).__init__()
+        self.dim = dim
+
+        self.downsample = nn.PixelUnshuffle(downscale_factor=downscale_factor)
+
+        self.conv_expand = nn.Sequential(nn.Conv2d(in_channels=dim*(downscale_factor**2), out_channels=dim*(downscale_factor**2*upscale_factor**2), kernel_size=(1, 1)),
+                                         nn.LeakyReLU(inplace=True))
+        # self.conv_expand = nn.Conv2d(in_channels=dim, out_channels=dim*(upscale_factor**2), kernel_size=(1, 1))
+        self.upsample = nn.PixelShuffle(upscale_factor=upscale_factor*downscale_factor)
+
+    def forward(self, x: torch.Tensor):
+        x = self.downsample(x)
+        x = self.conv_expand(x)
+        x = self.upsample(x)
+        return x
+        
         
 
 
@@ -431,6 +451,14 @@ class SwinUnet(nn.Module):
         self.patch_embed = PatchEmbedding(
             img_size = img_size, patch_size=patch_size, in_c=in_chans, embed_dim=embed_dim,
             norm_layer=norm_layer if patch_norm else None, circular_padding=circular_padding)
+
+        
+        # TODO: This method not really working, because it compresses the channels of input embedding, which can potentially lead to information loss
+        # self.pixel_unshuffle_layer = nn.Sequential(
+        #             nn.Conv2d(in_channels=embed_dim, out_channels=embed_dim//4, kernel_size=(1, 1)),
+        #             # nn.LeakyReLU(inplace=True),
+        #             nn.PixelUnshuffle(downscale_factor=2))
+            
         self.pos_drop = nn.Dropout(p=drop_rate)
         self.layers = self.build_layers()
         self.first_patch_expanding = PatchExpanding(dim=embed_dim * 2 ** (len(depths) - 1), norm_layer=norm_layer)
@@ -446,6 +474,7 @@ class SwinUnet(nn.Module):
         if self.pixel_shuffle:
             # Pixel Wise Embedding : upscale_factor = 2, else 4
             self.pixel_shuffle_layer = PixelShuffleHead(dim = embed_dim, upscale_factor=4)
+            # self.pixel_shuffle_layer = HybridPixelShuffleHead(dim = embed_dim, downscale_factor=window_size, upscale_factor=4)
         else:
             self.final_patch_expanding = FinalPatchExpanding(dim=embed_dim, norm_layer=norm_layer)
 
@@ -458,6 +487,7 @@ class SwinUnet(nn.Module):
 
             H_in = self.img_size[0] // patch_size[0]
             W_in = self.img_size[1] // patch_size[1]
+
             H_out = self.img_size[0] * 4
             W_out = self.img_size[1]
             self.params_input = (H_in, 
@@ -581,10 +611,15 @@ class SwinUnet(nn.Module):
         if self.grid_reshape:
              # Grid Reshape
             x = grid_reshape(x, self.params_input)
+
+
+            # # TODO: Test PixelUnshuffle
+            # x = rearrange(x, 'B H W C -> B C H W')
+            # x = self.pixel_unshuffle_layer(x.contiguous())
+            # x = rearrange(x, 'B C H W -> B H W C')
         else:
             x = x.contiguous().view((x.shape[0], int((x.shape[1] * x.shape[2])**0.5), int((x.shape[1] * x.shape[2])**0.5), x.shape[3]))
         x = self.pos_drop(x) 
-
         x_save = []
         # print(x.shape)
         for i, layer in enumerate(self.layers):
