@@ -5,8 +5,9 @@ import torch.nn as nn
 import numpy as np
 from einops import rearrange
 
-from swin_unet import PatchEmbedding, BasicBlock, PatchExpanding, BasicBlockUp, BasicBlockUpV2, BasicBlockV2
+from swin_unet import PatchEmbedding, BasicBlock, PatchExpanding, BasicBlockUp, PixelShuffleHead, BasicBlockUpV2, BasicBlockV2
 from util.pos_embed import get_2d_sincos_pos_embed
+from util.datasets import grid_reshape, grid_reshape_backward
 import copy
 
 
@@ -20,7 +21,9 @@ class SwinMAE(nn.Module):
                  depths: tuple = (2, 2, 6, 2), embed_dim: int = 96, num_heads: tuple = (3, 6, 12, 24),
                  window_size: int = 7, qkv_bias: bool = True, mlp_ratio: float = 4.,
                  drop_path_rate: float = 0.1, drop_rate: float = 0., attn_drop_rate: float = 0.,
-                 norm_layer=None, patch_norm: bool = True, swin_v2: bool = False):
+                 norm_layer=None, patch_norm: bool = True, circular_padding: bool = False, grid_reshape: bool = False, 
+                 conv_projection: bool = False, swin_v2: bool = False):
+
         super().__init__()
         # self.mask_ratio = mask_ratio
         assert (img_size[0] % patch_size[0] == 0) and (img_size[1] % patch_size[1] == 0)
@@ -40,7 +43,7 @@ class SwinMAE(nn.Module):
         self.in_chans = in_chans
 
         self.patch_embed = PatchEmbedding(img_size=img_size, patch_size=patch_size, in_c=in_chans, embed_dim=embed_dim,
-                                          norm_layer=norm_layer if patch_norm else None)
+                                          norm_layer=norm_layer if patch_norm else None, circular_padding=circular_padding)
         self.num_patches = self.patch_embed.num_patches
         self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, embed_dim), requires_grad=False)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
@@ -49,7 +52,15 @@ class SwinMAE(nn.Module):
         self.first_patch_expanding = PatchExpanding(dim=decoder_embed_dim, norm_layer=norm_layer)
         self.layers_up = self.build_layers_up()
         self.norm_up = norm_layer(embed_dim)
-        self.decoder_pred = nn.Linear(decoder_embed_dim // 8, patch_size[0] * patch_size[1] * in_chans, bias=True)
+
+        self.conv_projection = conv_projection
+        # Pixel Shuffle is conv based projection, maybe we should also match the projection in pretraining stage, I would use a pixel shuffle head for the projection as well
+        if conv_projection:
+            # self.ps_head = PixelShuffleHead(dim = decoder_embed_dim // 8, upscale_factor= int(patch_size[0] * patch_size[1]))
+            self.decoder_pred = nn.Conv2d(in_channels = decoder_embed_dim // 8, out_channels = patch_size[0] * patch_size[1] * in_chans, kernel_size = (1, 1), bias=False)
+        else:
+            self.decoder_pred = nn.Linear(decoder_embed_dim // 8, patch_size[0] * patch_size[1] * in_chans, bias=True)
+        
 
         if swin_v2:
             self.layers = self.build_layers_v2()
@@ -60,6 +71,24 @@ class SwinMAE(nn.Module):
 
         self.initialize_weights()
 
+        self.grid_reshape = grid_reshape
+        if self.grid_reshape:
+            H_in = img_size[0] // patch_size[0]
+            W_in = img_size[1] // patch_size[1]
+            H_out = img_size[0] // patch_size[0]
+            W_out = img_size[1] // patch_size[1]
+            self.params_input = (H_in, 
+                                 W_in,
+                                 embed_dim,
+                                 W_in // H_in,
+                                 int((W_in // H_in)**0.5))
+
+            self.params_output = (H_out,
+                                  W_out,
+                                  embed_dim,
+                                  W_out // H_out,
+                                  int((W_out // H_out)**0.5))
+
     def initialize_weights(self):
         pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.num_patches ** .5), cls_token=False)
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
@@ -69,7 +98,7 @@ class SwinMAE(nn.Module):
         self.apply(self._init_weights)
 
     def patch_size(self):
-        return self.patch_embed.proj.kernel_size
+        return self.patch_embed.patch_size
 
     def grid_size(self):
         return self.patch_embed.grid_size
@@ -118,6 +147,7 @@ class SwinMAE(nn.Module):
         x = torch.einsum('nhwpqc->nchpwq', x)
         imgs = x.reshape(x.shape[0], self.in_chans, h * ph, w * pw)
         return imgs
+    
 
     def window_masking(self, x: torch.Tensor, r: int = 4,
                        remove: bool = False, mask_len_sparse: bool = False, mask_ratio: float = 0.75):
@@ -135,6 +165,7 @@ class SwinMAE(nn.Module):
         remove: Whether to remove the mask patch
         mask_len_sparse: Whether the returned mask length is a sparse short length
         """
+        _, H, W, _ = x.shape
         x = rearrange(x, 'B H W C -> B (H W) C')
         B, L, D = x.shape
         assert int(L ** 0.5 / r) == L ** 0.5 / r
@@ -180,7 +211,13 @@ class SwinMAE(nn.Module):
             x_masked = torch.clone(x)
             for i in range(B):
                 x_masked[i, index_mask.cpu().numpy()[i, :], :] = self.mask_token
-            x_masked = rearrange(x_masked, 'B (H W) C -> B H W C', H=int(x_masked.shape[1] ** 0.5))
+
+            # TODO: Check if we need to apply the grid_reshape here or not
+            if self.grid_reshape:
+                x_masked = rearrange(x_masked, 'B (H W) C -> B H W C', H=H, W=W)
+                x_masked = grid_reshape(x_masked, params=self.params_input)
+            else:
+                x_masked = rearrange(x_masked, 'B (H W) C -> B H W C', H=int(x_masked.shape[1] ** 0.5))
             return x_masked, mask
 
     def build_layers_v2(self):
@@ -290,10 +327,17 @@ class SwinMAE(nn.Module):
 
         x = self.norm_up(x)
 
-        x = rearrange(x, 'B H W C -> B (H W) C')
-
-        x = self.decoder_pred(x)
-
+        if self.grid_reshape:
+            x = grid_reshape_backward(x, params=self.params_output)
+        
+        if self.conv_projection:
+            x = rearrange(x, 'B H W C -> B C H W')
+            x = self.decoder_pred(x) # B, h, w, ph*pw*1     
+            x = rearrange(x, 'B C H W -> B H W C')
+            x = rearrange(x, 'B H W C -> B (H W) C')
+        else:
+            x = rearrange(x, 'B H W C -> B (H W) C')
+            x = self.decoder_pred(x) # B, H*W/num_patchs, num_patchs
         return x
 
     def forward_loss(self, imgs, pred, mask, mask_loss = False, loss_on_unmasked = False):
@@ -373,7 +417,9 @@ class SwinMAE(nn.Module):
             masked_imgs = None
         pred = self.forward_decoder(latent)
         loss = self.forward_loss(x, pred, mask, mask_loss, loss_on_unmasked)
+
         pred_imgs = self.unpatchify(pred)# [N, L, p*p*3] --> (N, C, H, W)
+
         return loss, pred_imgs, masked_imgs
 
 
@@ -461,6 +507,18 @@ def swin_mae_line2_ws4_dec768d(**kwargs):
         #  **kwargs)
     return model
 
+def swin_mae_line2_ws8_dec768d(**kwargs):
+    model = SwinMAE(
+        patch_size=(1, 4),
+        window_size=8,
+        decoder_embed_dim=768,
+        depths=(2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        #  **kwargs)
+    return model
+
 def swin_mae_pacth2_ws4_dec384d(**kwargs):
     model = SwinMAE(
         patch_size=(2, 2),
@@ -501,7 +559,7 @@ def swin_mae_line2_v2_ws4_dec768d(**kwargs):
 
 swin_mae_patch2_large = swin_mae_pacth2_ws4_dec768d_depth4422
 swin_mae_patch2_base = swin_mae_pacth2_ws4_dec768d
-swin_mae_patch2_base_line = swin_mae_line2_ws4_dec768d
+
 swin_mae_patch2_small = swin_mae_pacth2_ws4_dec384d
 swin_mae_patch2_tiny = swin_mae_pacth2_ws4_dec192d
 swin_mae_patch4_base = swin_mae_pacth4_ws4_dec768d
@@ -509,3 +567,6 @@ swin_mae_patch4_small = swin_mae_pacth4_ws4_dec384d
 swin_mae_patch4_tiny = swin_mae_pacth4_ws4_dec192d
 
 swin_mae_v2_patch2_base_line = swin_mae_line2_v2_ws4_dec768d
+swin_mae_patch2_base_line_ws4 = swin_mae_line2_ws4_dec768d
+swin_mae_patch2_base_line_ws8 = swin_mae_line2_ws8_dec768d
+

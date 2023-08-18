@@ -51,6 +51,7 @@ def get_args_parser():
     # Pretrain parameters (MAE)
     parser.add_argument('--pretrain', default=None, type=str,
                         help='full path of pretrain model')
+    parser.add_argument('--pretrain_only_encoder', action='store_true', help="Only load pretrained weights of the encoder")
     parser.add_argument('--use_cls_token', action='store_true', help="Use CLS token in embedding")
 
     # Swin MAE parameters
@@ -73,6 +74,14 @@ def get_args_parser():
     parser.add_argument('--edge_loss', action='store_true',
                         help='Add edge loss')
     
+    parser.add_argument('--pixel_shuffle', action='store_true',
+                        help='pixel shuffle upsampling head')
+    parser.add_argument('--grid_reshape', action='store_true',
+                        help='grid reshape image')
+    parser.add_argument('--circular_padding', action='store_true',
+                        help='circular padding, kernel size is 1, 8 and stride is 1, 4')
+    
+
     parser.add_argument('--norm_pix_loss', action='store_true',
                         help='Use (per-patch) normalized pixels as targets for computing loss')
     parser.set_defaults(norm_pix_loss=False)
@@ -253,7 +262,10 @@ def main(args):
                                                     patch_size = tuple(args.patch_size), 
                                                     in_chans = args.in_chans,
                                                     window_size = args.window_size,
-                                                    edge_loss = args.edge_loss,)
+                                                    edge_loss = args.edge_loss,
+                                                    pixel_shuffle = args.pixel_shuffle,
+                                                    grid_reshape = args.grid_reshape,
+                                                    circular_padding = args.circular_padding,)
         
     # Load pretrained model
     if args.pretrain is not None:
@@ -269,6 +281,17 @@ def main(args):
                 del pretrain_model[k]
 
         
+        # state_dict = model.state_dict()
+
+        # # if args.pretrain_only_encoder:
+        # print(pretrain_model.keys())
+
+        if args.pretrain_only_encoder:
+            for k in list(pretrain_model.keys()):
+                if k.__contains__('up'):
+                    print(f"Removing key {k} from pretrained checkpoint")
+                    del pretrain_model[k]
+            
         msg = model.load_state_dict(pretrain_model, strict=False)
         print(msg)
 

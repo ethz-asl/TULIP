@@ -17,8 +17,13 @@ args=(
     # --eval
     --model_select swin_unet_v2
     # --edge_loss
-    # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/linemasking_075_log_transform/checkpoint-59.pth
+    # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/GridReshape_CircularPadding_ConvProjection_ws4/checkpoint-59.pth
     --pretrain /cluster/work/riner/users/biyang/pretrained_mae/swinv2_small_patch4_window8_256.pth
+    --pretrain_only_encoder
+    --pixel_shuffle
+    --circular_padding
+    --grid_reshape
+    --model_select swin_unet
     # Dataset
     --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large_low_res
     # --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
@@ -27,28 +32,21 @@ args=(
     # --keep_close_scan
     # --save_pcd
     # WandB Parameters
-    --run_name swin_v2_pretrain_imagenet_patchsize4x4
+    --run_name grid_reshape+pixel_shuffle+circularpadding+pretrain_onlyencoder_ws4
     --entity biyang
     # --wandb_disabled
-    # --project_name swin_mae_lowres_durlar
-    --project_name SwinTransformerV2
-    # --wandb_disabled
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/SwinV2_Pretrain_ImageNet_patchsize4x4
+    --project_name experiment_upsampling_pt2
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_2/GridReshape_PixelShuffle_CircularPadding_PretrainOnlyEncoder_ws4
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --input_size 128
-    # --window_size 4
-    # --patch_size 1 4
-    --window_size 8
-    --patch_size 4 4
-    --in_chans 1
-    # --img_size 224 224
-    # --input_size 224
-    # --window_size 7
+    --window_size 4
+    --patch_size 1 4
+    # --window_size 8
     # --patch_size 4 4
-    # --in_chans 3
+    --in_chans 1
     )
 
 # python mae/main_ouster.py "${args[@]}"   
