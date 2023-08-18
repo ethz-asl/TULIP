@@ -3,12 +3,13 @@ import torch.nn as nn
 import torch.nn.functional as func
 
 from einops import rearrange
-from typing import Optional
+from typing import Optional, Tuple
 
 from functools import partial
 from util.filter import *
 
 from util.evaluation import inverse_huber_loss
+from swin_transformer_v2 import SwinTransformerBlockV2, PatchMergingV2
 from util.datasets import grid_reshape, grid_reshape_backward
 
 class DropPath(nn.Module):
@@ -93,6 +94,7 @@ class PatchMerging(nn.Module):
         if H % 2 == 1 or W % 2 == 1:
             x = func.pad(x, (0, 0, 0, W % 2, 0, H % 2))
         return x
+    
 
     @staticmethod
     def merging(x: torch.Tensor) -> torch.Tensor:
@@ -130,16 +132,27 @@ class PatchExpanding(nn.Module):
 # TODO: Adjust the input and output size for new input shape
 
 class FinalPatchExpanding(nn.Module):
-    def __init__(self, dim: int, norm_layer=nn.LayerNorm):
+    def __init__(self, dim: int, norm_layer=nn.LayerNorm, patch_size=Tuple[int, int]):
         super(FinalPatchExpanding, self).__init__()
         self.dim = dim
         # self.additional_factor = patch_size[0] * patch_size[1]
+        # self.expand = nn.Linear(dim, 16 * dim, bias=False)
+        # Have to change for loading pretrain weights of ImageNet (input is 256x256, we have 128x128 after patch embedding)
+        self.expand = nn.Linear(dim, 64 * dim, bias=False)
         # self.expand = nn.Linear(dim, 16 * dim, bias=False)
         self.expand = nn.Linear(dim, 16 * dim, bias=False)
         self.norm = norm_layer(dim)
 
     def forward(self, x: torch.Tensor):
         x = self.expand(x)
+        # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=1, 
+        #                                                         P2=16, 
+        #                                                         C = self.dim)
+    
+        # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=4,
+        #                                                         P2=4,
+        #                                                         C = self.dim)
+        # Have to change for loading pretrain weights of ImageNet (input is 256x256, we have 128x128 after patch embedding)
         
         x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=4,
                                                                 P2=4,
@@ -347,6 +360,49 @@ class SwinTransformerBlock(nn.Module):
         return x
     
 
+class BasicBlockV2(nn.Module):
+    def __init__(self, index: int, embed_dim: int = 96,input_resolution: tuple=(128, 128), window_size: int = 7, depths: tuple = (2, 2, 6, 2),
+                 num_heads: tuple = (3, 6, 12, 24), mlp_ratio: float = 4., qkv_bias: bool = True,
+                 drop_rate: float = 0., attn_drop_rate: float = 0., drop_path: float = 0.1,
+                 norm_layer=nn.LayerNorm, patch_merging: bool = True):
+        super(BasicBlockV2, self).__init__()
+        depth = depths[index]
+        dim = embed_dim * 2 ** index
+        num_head = num_heads[index]
+
+        dpr = [rate.item() for rate in torch.linspace(0, drop_path, sum(depths))]
+        drop_path_rate = dpr[sum(depths[:index]):sum(depths[:index + 1])]
+
+        self.blocks = nn.ModuleList([
+            SwinTransformerBlockV2(
+                dim=dim,
+                # input_resolution = (input_resolution[0] // (2 ** i),
+                #                     input_resolution[1] // (2 ** i)), 
+                input_resolution = input_resolution,
+                num_heads=num_head,
+                window_size=window_size,
+                shift_size= 0 if (i % 2 == 0) else window_size // 2,
+                mlp_ratio=mlp_ratio,
+                qkv_bias=qkv_bias,
+                drop=drop_rate,
+                attn_drop=attn_drop_rate,
+                drop_path=drop_path_rate[i],
+                norm_layer=norm_layer)
+            for i in range(depth)])
+        
+        if patch_merging:
+            self.downsample = PatchMergingV2(input_resolution=input_resolution,
+                                             dim=dim, norm_layer=norm_layer)
+        else:
+            self.downsample = None
+
+    def forward(self, x):
+        for layer in self.blocks:
+            x = layer(x)
+        if self.downsample is not None:
+            x = self.downsample(x)
+        return x
+    
 
 class BasicBlock(nn.Module):
     def __init__(self, index: int, embed_dim: int = 96, window_size: int = 7, depths: tuple = (2, 2, 6, 2),
@@ -388,6 +444,8 @@ class BasicBlock(nn.Module):
         return x
 
 
+
+
 class BasicBlockUp(nn.Module):
     def __init__(self, index: int, embed_dim: int = 96, window_size: int = 7, depths: tuple = (2, 2, 6, 2),
                  num_heads: tuple = (3, 6, 12, 24), mlp_ratio: float = 4., qkv_bias: bool = True,
@@ -425,6 +483,47 @@ class BasicBlockUp(nn.Module):
             x = layer(x)
         x = self.upsample(x)
         return x
+    
+class BasicBlockUpV2(nn.Module):
+    def __init__(self, index: int, embed_dim: int = 96, input_resolution: tuple=(128, 128),  window_size: int = 7, depths: tuple = (2, 2, 6, 2),
+                 num_heads: tuple = (3, 6, 12, 24), mlp_ratio: float = 4., qkv_bias: bool = True,
+                 drop_rate: float = 0., attn_drop_rate: float = 0., drop_path: float = 0.1,
+                 patch_expanding: bool = True, norm_layer=nn.LayerNorm):
+        super(BasicBlockUpV2, self).__init__()
+        index = len(depths) - index - 2
+        depth = depths[index]
+        dim = embed_dim * 2 ** index
+        num_head = num_heads[index]
+
+        dpr = [rate.item() for rate in torch.linspace(0, drop_path, sum(depths))]
+        drop_path_rate = dpr[sum(depths[:index]):sum(depths[:index + 1])]
+
+        self.blocks = nn.ModuleList([
+            SwinTransformerBlockV2(
+                dim=dim,
+                # input_resolution = (input_resolution[0] * (2 ** i),
+                #                     input_resolution[1] * (2 ** i)), 
+                input_resolution = input_resolution,
+                num_heads=num_head,
+                window_size=window_size,
+                shift_size= 0 if (i % 2 == 0) else window_size // 2,
+                mlp_ratio=mlp_ratio,
+                qkv_bias=qkv_bias,
+                drop=drop_rate,
+                attn_drop=attn_drop_rate,
+                drop_path=drop_path_rate[i],
+                norm_layer=norm_layer)
+            for i in range(depth)])
+        if patch_expanding:
+            self.upsample = PatchExpanding(dim=embed_dim * 2 ** index, norm_layer=norm_layer)
+        else:
+            self.upsample = nn.Identity()
+
+    def forward(self, x):
+        for layer in self.blocks:
+            x = layer(x)
+        x = self.upsample(x)
+        return x
 
 
 class SwinUnet(nn.Module):
@@ -432,7 +531,7 @@ class SwinUnet(nn.Module):
                  window_size: int = 4, depths: tuple = (2, 2, 6, 2), num_heads: tuple = (3, 6, 12, 24),
                  mlp_ratio: float = 4., qkv_bias: bool = True, drop_rate: float = 0., attn_drop_rate: float = 0.,
                  drop_path_rate: float = 0.1, norm_layer=nn.LayerNorm, patch_norm: bool = True, edge_loss: bool = False, pixel_shuffle: bool = False,
-                 grid_reshape: bool = False, circular_padding: bool = False):
+                 grid_reshape: bool = False, circular_padding: bool = False, swin_v2: bool = False):
         super().__init__()
 
         self.window_size = window_size
@@ -460,9 +559,14 @@ class SwinUnet(nn.Module):
         #             nn.PixelUnshuffle(downscale_factor=2))
             
         self.pos_drop = nn.Dropout(p=drop_rate)
-        self.layers = self.build_layers()
+        if swin_v2:
+            self.layers = self.build_layers_v2()
+            self.layers_up = self.build_layers_up_v2()
+        else:
+            self.layers = self.build_layers()
+            self.layers_up = self.build_layers_up()
         self.first_patch_expanding = PatchExpanding(dim=embed_dim * 2 ** (len(depths) - 1), norm_layer=norm_layer)
-        self.layers_up = self.build_layers_up()
+
         self.skip_connection_layers = self.skip_connection()
         self.norm_up = norm_layer(embed_dim)
         self.head = nn.Conv2d(in_channels=embed_dim, out_channels=num_output_channel, kernel_size=(1, 1), bias=False)
@@ -514,6 +618,49 @@ class SwinUnet(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+
+    def build_layers_v2(self):
+        layers = nn.ModuleList()
+        for i in range(self.num_layers):
+            layer = BasicBlockV2(
+                index=i,
+                input_resolution=(int(self.patch_embed.num_patches**0.5) // (2**i),
+                                  int(self.patch_embed.num_patches**0.5) // (2**i)),
+                depths=self.depths,
+                embed_dim=self.embed_dim,
+                num_heads=self.num_heads,
+                drop_path=self.drop_path,
+                window_size=self.window_size,
+                mlp_ratio=self.mlp_ratio,
+                qkv_bias=self.qkv_bias,
+                drop_rate=self.drop_rate,
+                attn_drop_rate=self.attn_drop_rate,
+                norm_layer=self.norm_layer,
+                patch_merging=False if i == self.num_layers - 1 else True)
+            layers.append(layer)
+        return layers
+    
+    def build_layers_up_v2(self):
+        layers_up = nn.ModuleList()
+        for i in range(self.num_layers - 1):
+            layer = BasicBlockUpV2(
+                index=i,
+                input_resolution=(int(self.patch_embed.num_patches**0.5)// (2**(self.num_layers-2-i)),
+                                  int(self.patch_embed.num_patches**0.5)// (2**(self.num_layers-2-i))), 
+                depths=self.depths,
+                embed_dim=self.embed_dim,
+                num_heads=self.num_heads,
+                drop_path=self.drop_path,
+                window_size=self.window_size,
+                mlp_ratio=self.mlp_ratio,
+                qkv_bias=self.qkv_bias,
+                drop_rate=self.drop_rate,
+                attn_drop_rate=self.attn_drop_rate,
+                patch_expanding=True if i < self.num_layers - 2 else False,
+                norm_layer=self.norm_layer)
+            layers_up.append(layer)
+        return layers_up
+
 
     def build_layers(self):
         layers = nn.ModuleList()
@@ -685,3 +832,25 @@ def swin_unet(**kwargs):
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
         #  **kwargs)
     return model
+
+
+# def swin_unet_pretrain(**kwargs):
+#     model = SwinUnet(
+#         # patch_size=(4, 4),
+#         depths=(2, 2, 2, 2), embed_dim=128, num_heads=(3, 6, 12, 24),
+#         qkv_bias=True, mlp_ratio=4,
+#         drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+#         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+#         #  **kwargs)
+#     return model
+
+def swin_unet_v2(**kwargs):
+    model = SwinUnet(
+        # patch_size=(4, 4),
+        depths=(2, 2, 2, 2), embed_dim=96 ,num_heads=(3, 6, 12, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), swin_v2=True, **kwargs)
+        #  **kwargs)
+    return model
+

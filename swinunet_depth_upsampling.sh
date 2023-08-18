@@ -15,13 +15,15 @@ args=(
     --warmup_epochs 10
     # Model parameters
     # --eval
+    --model_select swin_unet_v2
+    # --edge_loss
+    # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/GridReshape_CircularPadding_ConvProjection_ws4/checkpoint-59.pth
+    --pretrain /cluster/work/riner/users/biyang/pretrained_mae/swinv2_small_patch4_window8_256.pth
     --pretrain_only_encoder
     --pixel_shuffle
     --circular_padding
     --grid_reshape
     --model_select swin_unet
-    # --edge_loss
-    --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/GridReshape_CircularPadding_ConvProjection_ws4/checkpoint-59.pth
     # Dataset
     --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large_low_res
     # --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
@@ -42,6 +44,8 @@ args=(
     --input_size 128
     --window_size 4
     --patch_size 1 4
+    # --window_size 8
+    # --patch_size 4 4
     --in_chans 1
     )
 

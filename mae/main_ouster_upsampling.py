@@ -63,7 +63,7 @@ def get_args_parser():
 
     # Model parameters
     parser.add_argument('--model_select', default='mae', type=str,
-                        choices=['mae', 'swin_mae', 'swin_unet'])
+                        choices=['mae', 'swin_mae', 'swin_unet', 'swin_unet_v2'])
 
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
                         help='Name of model to train')
@@ -274,6 +274,13 @@ def main(args):
         print("Load pre-trained checkpoint from: %s" % args.pretrain)
         pretrain_model = pretrain['model']
 
+        state_dict = model.state_dict()
+        for k in ['head.weight', 'patch_embed.proj.weight']:
+            if k in pretrain_model and pretrain_model[k].shape != state_dict[k].shape:
+                print(f"Removing key {k} from pretrained checkpoint")
+                del pretrain_model[k]
+
+        
         # state_dict = model.state_dict()
 
         # # if args.pretrain_only_encoder:

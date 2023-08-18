@@ -18,6 +18,7 @@ args=(
     # Model parameters
     # --curriculum_learning
     --model_select swin_mae
+    # --model swin_mae_v2_patch2_base_line
     --model swin_mae_patch2_base_line_ws4
     --grid_reshape
     --circular_padding
