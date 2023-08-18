@@ -94,14 +94,14 @@ def train_one_epoch(model: torch.nn.Module,
         lr = optimizer.param_groups[0]["lr"]
         metric_logger.update(lr=lr)
 
-        total_loss_value_reduce = misc.all_reduce_mean(total_loss_value)
+        # total_loss_value_reduce = misc.all_reduce_mean(total_loss_value)
         pixel_loss_value_reduce = misc.all_reduce_mean(pixel_loss_value)
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             """ We use epoch_1000x as the x-axis in tensorboard.
             This calibrates different curves when batch size changes.
             """
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
-            log_writer.add_scalar('train_loss_total', total_loss_value_reduce, epoch_1000x)
+            # log_writer.add_scalar('train_loss_total', total_loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('train_loss_pixel', pixel_loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
 
