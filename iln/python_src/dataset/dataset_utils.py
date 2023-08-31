@@ -32,10 +32,9 @@ def read_range_durlar(filename, dtype=np.float16, lidar=None):
     :return: range image encoded by float32 type
     """
     range_image_file = open(filename, 'rb')
-    range_image = Image.open(range_image_file).convert("L")
-
-
-    range_image = np.asarray(range_image, dtype = np.float32) / 255
+    # range_image = Image.open(range_image_file).convert("L")
+    range_image = np.load(range_image_file)
+    # range_image = np.asarray(range_image, dtype = np.float32) / 255
 
     return range_image.astype(np.float32)
 
@@ -276,7 +275,7 @@ def normalization_ranges(range_image, norm_r=100.0):
     return range_image
 
 
-def denormalization_ranges(range_image, norm_r=100.0):
+def denormalization_ranges(range_image, norm_r=120.0):
     """
     Denormalize a range image: [-1 ~ 1] --> [0 ~ norm_r].
 

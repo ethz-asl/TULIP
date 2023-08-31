@@ -72,10 +72,15 @@ def test_pixel_based_network():
 def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048, save_pcd = True, grid_size = 0.1):
     # mae_evaluator = MAEEvaluator()
     # voxel_evaluator = VoxelIoUEvaluator(voxel_size=args.voxel_size, lidar=test_dataset.lidar_out)
+    global_step = 0
     local_step = 0
+    total_loss = 0
+    total_iou = 0
+    total_cd = 0
     for packed_batches in tqdm(test_loader, leave=False, desc='test'):
-
-        if local_step // 4 != 0:
+        
+        if global_step % 4 != 0:
+            global_step += 1
             continue
         # input_range_image:    [N, 1, H_in, W_in]
         # input_queries:        [N, H_out*W_out, 2]
@@ -102,10 +107,6 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
         pred_ranges = denormalization_ranges(pred_ranges)       # [N * H_out * W_out]
         pred_ranges[pred_ranges < 0.] = 0.
         pred_ranges[pred_ranges > test_dataset.lidar_out['norm_r']] = test_dataset.lidar_out['norm_r']
-
-
-
-
         # Reshape to [H, W]
 
         pred_ranges = pred_ranges.reshape(h_high, w_high)
@@ -117,22 +118,21 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
         low_res_index = range(0, h_high, 4)
 
         # Evaluate the loss of low resolution part
-        loss_low_res_part = (pred[low_res_index, :] - gt[low_res_index, :]) ** 2
+        loss_low_res_part = np.abs((pred[low_res_index, :] - gt[low_res_index, :]))
         loss_low_res_part = loss_low_res_part.mean()
 
-        mse_all = ((pred - gt)**2).mean()
+        mse_all = (np.absolute(pred - gt)).mean()
 
-    
-        pcd_pred = img_to_pcd(pred)
-        pcd_gt = img_to_pcd(gt)
+        pcd_pred = img_to_pcd(pred, maximum_range=120)
+        pcd_gt = img_to_pcd(gt, maximum_range=120)
 
-        # print(pcd_pred.shape, pcd_gt.shape)
 
         pcd_all = np.vstack((pcd_pred, pcd_gt))
 
         chamfer_dist = chamfer_distance(pcd_gt, pcd_pred)
         min_coord = np.min(pcd_all, axis=0)
         max_coord = np.max(pcd_all, axis=0)
+
         
         voxel_grid_predicted = voxelize_point_cloud(pcd_pred, grid_size, min_coord, max_coord)
         voxel_grid_ground_truth = voxelize_point_cloud(pcd_gt, grid_size, min_coord, max_coord)
@@ -140,23 +140,32 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
         iou, precision, recall = calculate_metrics(voxel_grid_predicted, voxel_grid_ground_truth)
 
 
-        if save_pcd:
-            pcd_eval_path = os.path.join(output_path, "pcd")
-            
-            if not os.path.exists(pcd_eval_path):
-                os.mkdir(pcd_eval_path)
-            pcd_pred_color = np.zeros_like(pcd_pred)
-            pcd_pred_color[:, 0] = 255
-            pcd_gt_color = np.zeros_like(pcd_gt)
-            pcd_gt_color[:, 2] = 255
-            
-            pcd_all_color = np.vstack((pcd_pred_color, pcd_gt_color))
+        total_iou += iou
+        total_cd += chamfer_dist
+        total_loss += mse_all
 
-            point_cloud = trimesh.PointCloud(
-                vertices=pcd_all,
-                colors=pcd_all_color)
-            
-            point_cloud.export(os.path.join(pcd_eval_path, f"pred_gt_{local_step}.ply"))
+        if save_pcd:
+            if local_step % 4 == 0:
+                pcd_eval_path = os.path.join(output_path, "pcd")
+                
+                if not os.path.exists(pcd_eval_path):
+                    os.mkdir(pcd_eval_path)
+                pcd_pred_color = np.zeros_like(pcd_pred)
+                pcd_pred_color[:, 0] = 255
+                pcd_gt_color = np.zeros_like(pcd_gt)
+                pcd_gt_color[:, 2] = 255
+                
+                # pcd_all_color = np.vstack((pcd_pred_color, pcd_gt_color))
+
+                point_cloud_pred = trimesh.PointCloud(
+                    vertices=pcd_pred,
+                    colors=pcd_pred_color)
+                point_cloud_gt = trimesh.PointCloud(
+                    vertices=pcd_gt,
+                    colors=pcd_gt_color)
+                
+                point_cloud_pred.export(os.path.join(pcd_eval_path, f"pred_{local_step}.ply"))
+                point_cloud_gt.export(os.path.join(pcd_eval_path, f"gt_{local_step}.ply"))
 
             
 
@@ -166,6 +175,8 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
                    "Test/iou": iou,
                    "Test/precision": precision,
                    "Test/recall": recall}, local_step)
+        
+        
 
         gt_vis = scalarMap.to_rgba(gt)[..., :3]
         pred_vis = scalarMap.to_rgba(pred)[..., :3]
@@ -182,11 +193,13 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
         wandb.log({"gt - pred":
                 logger})
 
-
-
-
         
         local_step += 1
+        global_step += 1
+
+    wandb.log({'Metrics/test_average_iou': total_iou/local_step,
+                'Metrics/test_average_cd': total_cd/local_step,
+                'Metrics/test_average_loss': total_loss/local_step})
 
 
 if __name__ == '__main__':
@@ -249,8 +262,8 @@ if __name__ == '__main__':
     wandb.init(project=config['logger']['project_name'],
                 entity=config['logger']['entity'],
                 name = config['logger']['run_name'], 
-                mode=mode,
-                group="DDP" if num_of_gpus > 1 else "Single_GPU",)
+                mode=mode,)
+                # group="DDP" if num_of_gpus > 1 else "Single_GPU",)
 
     model.eval().cuda()
 

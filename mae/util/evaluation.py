@@ -37,7 +37,7 @@ def px_to_xyz(px, p_range, cols):
     z_sensor = z_lidar + lidar_to_sensor_z_offset
     return np.array([x_sensor, y_sensor, z_sensor])
 
-def img_to_pcd(img_range, maximum_range = 200):
+def img_to_pcd(img_range, maximum_range = 120):
     rows, cols = img_range.shape[:2]
 
     points = np.zeros((rows*cols, 3))
@@ -46,7 +46,9 @@ def img_to_pcd(img_range, maximum_range = 200):
 
             idx = idx_from_px((u, v), cols)
             range_px = img_range[v, u] * maximum_range
-            if range_px < 0.1:
+            if range_px > maximum_range:
+                print(v,u, range_px, img_range[v, u])
+            if range_px < 0.3:
                 continue
             else:
                 point_repro = px_to_xyz((u,v), range_px, cols)
@@ -54,6 +56,35 @@ def img_to_pcd(img_range, maximum_range = 200):
 
 
     return points
+
+
+def img_to_pcd_carla(img_range, maximum_range = 80):
+    img_range = np.flip(img_range)
+    rows, cols = img_range.shape[:2]
+
+    v_dir = np.linspace(start=-15, stop=15, num=rows)
+    h_dir = np.linspace(start=-180, stop=180, num=cols, endpoint=False)
+
+    v_angles = []
+    h_angles = []
+
+    for i in range(rows):
+        v_angles = np.append(v_angles, np.ones(cols) * v_dir[i])
+        h_angles = np.append(h_angles, h_dir)
+
+    angles = np.stack((v_angles, h_angles), axis=-1).astype(np.float32)
+    angles = np.deg2rad(angles)
+
+    r = img_range.flatten() * maximum_range
+
+    x = np.sin(angles[:, 1]) * np.cos(angles[:, 0]) * r
+    y = np.cos(angles[:, 1]) * np.cos(angles[:, 0]) * r
+    z = np.sin(angles[:, 0]) * r
+
+    points = np.stack((x, y, z), axis=-1)
+
+    return points
+
 
 
 

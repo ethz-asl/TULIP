@@ -5,7 +5,7 @@ import torch.nn as nn
 import numpy as np
 from einops import rearrange
 
-from swin_unet import PatchEmbedding, BasicBlock, PatchExpanding, BasicBlockUp, PixelShuffleHead, BasicBlockUpV2, BasicBlockV2
+from swin_unet import PatchEmbedding, BasicBlock, PatchExpanding, BasicBlockUp, PixelShuffleHead, BasicBlockUpV2, BasicBlockV2, PixelShuffleExpanding
 from util.pos_embed import get_2d_sincos_pos_embed
 from util.datasets import grid_reshape, grid_reshape_backward
 import copy
@@ -22,7 +22,7 @@ class SwinMAE(nn.Module):
                  window_size: int = 7, qkv_bias: bool = True, mlp_ratio: float = 4.,
                  drop_path_rate: float = 0.1, drop_rate: float = 0., attn_drop_rate: float = 0.,
                  norm_layer=None, patch_norm: bool = True, circular_padding: bool = False, grid_reshape: bool = False, 
-                 conv_projection: bool = False, swin_v2: bool = False):
+                 conv_projection: bool = False, swin_v2: bool = False, pixel_shuffle_expanding: bool = False, log_transform: bool = False):
 
         super().__init__()
         # self.mask_ratio = mask_ratio
@@ -41,6 +41,9 @@ class SwinMAE(nn.Module):
         self.attn_drop_rate = attn_drop_rate
         self.norm_layer = norm_layer
         self.in_chans = in_chans
+        self.conv_projection = conv_projection
+        self.pixel_shuffle_expanding = pixel_shuffle_expanding
+        self.log_transform = log_transform
 
         self.patch_embed = PatchEmbedding(img_size=img_size, patch_size=patch_size, in_c=in_chans, embed_dim=embed_dim,
                                           norm_layer=norm_layer if patch_norm else None, circular_padding=circular_padding)
@@ -48,16 +51,19 @@ class SwinMAE(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, embed_dim), requires_grad=False)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.layers = self.build_layers()
-       
-        self.first_patch_expanding = PatchExpanding(dim=decoder_embed_dim, norm_layer=norm_layer)
+
+        if self.pixel_shuffle_expanding:
+            self.first_patch_expanding = PixelShuffleExpanding(dim = decoder_embed_dim, norm_layer=norm_layer)
+        else:
+            self.first_patch_expanding = PatchExpanding(dim=decoder_embed_dim, norm_layer=norm_layer)
         self.layers_up = self.build_layers_up()
         self.norm_up = norm_layer(embed_dim)
 
-        self.conv_projection = conv_projection
+        
         # Pixel Shuffle is conv based projection, maybe we should also match the projection in pretraining stage, I would use a pixel shuffle head for the projection as well
         if conv_projection:
-            # self.ps_head = PixelShuffleHead(dim = decoder_embed_dim // 8, upscale_factor= int(patch_size[0] * patch_size[1]))
-            self.decoder_pred = nn.Conv2d(in_channels = decoder_embed_dim // 8, out_channels = patch_size[0] * patch_size[1] * in_chans, kernel_size = (1, 1), bias=False)
+            self.ps_head= PixelShuffleHead(dim = decoder_embed_dim // 8, upscale_factor= int((patch_size[0] * patch_size[1])**0.5))
+            self.decoder_pred = nn.Conv2d(in_channels = decoder_embed_dim // 8, out_channels = 1, kernel_size = (1, 1), bias=False)
         else:
             self.decoder_pred = nn.Linear(decoder_embed_dim // 8, patch_size[0] * patch_size[1] * in_chans, bias=True)
         
@@ -75,8 +81,8 @@ class SwinMAE(nn.Module):
         if self.grid_reshape:
             H_in = img_size[0] // patch_size[0]
             W_in = img_size[1] // patch_size[1]
-            H_out = img_size[0] // patch_size[0]
-            W_out = img_size[1] // patch_size[1]
+            H_out = img_size[0] 
+            W_out = img_size[1] 
             self.params_input = (H_in, 
                                  W_in,
                                  embed_dim,
@@ -258,7 +264,8 @@ class SwinMAE(nn.Module):
                 drop_rate=self.drop_rate,
                 attn_drop_rate=self.attn_drop_rate,
                 patch_expanding=True if i < self.num_layers - 2 else False,
-                norm_layer=self.norm_layer)
+                norm_layer=self.norm_layer,
+                pixel_shuffle_expanding=self.pixel_shuffle_expanding)
             layers_up.append(layer)
         return layers_up
 
@@ -296,7 +303,8 @@ class SwinMAE(nn.Module):
                 drop_rate=self.drop_rate,
                 attn_drop_rate=self.attn_drop_rate,
                 patch_expanding=True if i < self.num_layers - 2 else False,
-                norm_layer=self.norm_layer)
+                norm_layer=self.norm_layer,
+                pixel_shuffle_expanding=self.pixel_shuffle_expanding)
             layers_up.append(layer)
         return layers_up
 
@@ -327,15 +335,19 @@ class SwinMAE(nn.Module):
 
         x = self.norm_up(x)
 
-        if self.grid_reshape:
-            x = grid_reshape_backward(x, params=self.params_output)
-        
         if self.conv_projection:
             x = rearrange(x, 'B H W C -> B C H W')
-            x = self.decoder_pred(x.contiguous()) # B, h, w, ph*pw*1     
-            x = rearrange(x, 'B C H W -> B H W C')
-            x = rearrange(x, 'B H W C -> B (H W) C')
+            x = self.ps_head(x.contiguous()) # B, h, w, ph*pw*1     
+            # x = rearrange(x, 'B C H W -> B H W C')
+            # x = rearrange(x, 'B H W C -> B (H W) C')
+
+            if self.grid_reshape:
+                x = grid_reshape_backward(x, params=self.params_output, order="bchw")
+            x = self.decoder_pred(x.contiguous()) # B, 1, H, W
+            x = self.patchify(x) 
         else:
+            if self.grid_reshape:
+                x = grid_reshape_backward(x, params=self.params_output, order="bhwc")
             x = rearrange(x, 'B H W C -> B (H W) C')
             x = self.decoder_pred(x) # B, H*W/num_patchs, num_patchs
         return x
@@ -355,9 +367,12 @@ class SwinMAE(nn.Module):
             target = (target - mean) / (var + 1.e-6) ** .5
 
         # L2
-        loss = (pred - target) ** 2  
+        # loss = (pred - target) ** 2  
         # L1
-        # loss = (pred - target).abs()
+        if self.log_transform:
+            loss = (torch.log1p(pred) - torch.log1p(target)).abs()
+        else:
+            loss = (pred - target).abs()
 
         # Mask the loss with LiDAR return
         if mask_loss:
@@ -507,6 +522,18 @@ def swin_mae_line2_ws4_dec768d(**kwargs):
         #  **kwargs)
     return model
 
+def swin_mae_moredepths_line2_ws4_dec768d(**kwargs):
+    model = SwinMAE(
+        patch_size=(1, 4),
+        window_size=4,
+        decoder_embed_dim=768,
+        depths=(2, 2, 6, 2), embed_dim=96, num_heads=(3, 6, 12, 24),
+        qkv_bias=True, mlp_ratio=4,
+        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        #  **kwargs)
+    return model
+
 def swin_mae_line2_ws8_dec768d(**kwargs):
     model = SwinMAE(
         patch_size=(1, 4),
@@ -569,4 +596,6 @@ swin_mae_patch4_tiny = swin_mae_pacth4_ws4_dec192d
 swin_mae_v2_patch2_base_line = swin_mae_line2_v2_ws4_dec768d
 swin_mae_patch2_base_line_ws4 = swin_mae_line2_ws4_dec768d
 swin_mae_patch2_base_line_ws8 = swin_mae_line2_ws8_dec768d
+
+swin_mae_moredepths_patch2_base_line_ws4 = swin_mae_moredepths_line2_ws4_dec768d
 

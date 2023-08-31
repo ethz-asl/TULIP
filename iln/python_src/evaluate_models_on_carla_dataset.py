@@ -91,8 +91,6 @@ def test_implicit_network(pred_batch=1):
         pred_ranges[pred_ranges > test_dataset.lidar_out['norm_r']] = test_dataset.lidar_out['norm_r']
 
 
-        print(pred_ranges.shape)
-        exit(0)
 
         # MAE
         mae_evaluator.update((output_ranges.flatten(), pred_ranges.flatten()))
@@ -147,12 +145,12 @@ if __name__ == '__main__':
     check_point = torch.load(args.checkpoint)
 
     # Test settings
-    # dataset_config = {'name': 'Carla',
-    #                   'type': 'range_samples_from_image',
-    #                   'args': {'directory': args.carla_directory,
-    #                            'scene_ids': ['Town07', 'Town10HD'],
-    #                            'res_in': '16_1024',
-    #                            'res_out': args.target_resolution}}
+    dataset_config = {'name': 'Carla',
+                      'type': 'range_samples_from_image',
+                      'args': {'directory': args.carla_directory,
+                               'scene_ids': ['Town07', 'Town10HD'],
+                               'res_in': '16_1024',
+                               'res_out': args.target_resolution}}
 
 
 

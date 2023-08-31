@@ -3,6 +3,8 @@
 /dataset
 /*/__pycache__
 /*/*__pycache__
+/*/*/*/__pycache__
+/*/*/*/*/__pycache__
 /__pycache__
 /wandb
 /output_dir
@@ -11,3 +13,8 @@ slurm*
 /output
 /.vscode-server
 test.py
+*.png
+iln/build
+iln/extern
+iln/python_src/voxelizer.cpython-39-x86_64-linux-gnu.so
+

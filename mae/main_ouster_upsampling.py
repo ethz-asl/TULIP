@@ -21,7 +21,7 @@ import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from util.datasets import build_durlar_upsampling_dataset
+from util.datasets import build_durlar_upsampling_dataset, build_carla_upsampling_dataset
 from util.pos_embed import interpolate_pos_embed
 
 import timm
@@ -35,7 +35,7 @@ from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
 import swin_unet
 from timm.data.dataset import ImageDataset
-from engine_upsampling import train_one_epoch, evaluate, get_latest_checkpoint
+from engine_upsampling import train_one_epoch, evaluate, get_latest_checkpoint, MCdrop
 import wandb
 
 
@@ -63,7 +63,10 @@ def get_args_parser():
 
     # Model parameters
     parser.add_argument('--model_select', default='mae', type=str,
-                        choices=['mae', 'swin_mae', 'swin_unet', 'swin_unet_v2'])
+                        choices=['mae', 'swin_mae', 'swin_unet', 
+                                 'swin_unet_v2', 'swin_unet_deep', 'swin_unet_deeper',
+                                 'swin_unet_moredepths', 'swin_unet_v2_deep', 'swin_unet_v2_deeper',
+                                 'swin_unet_v2_moredepths'])
 
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
                         help='Name of model to train')
@@ -74,12 +77,17 @@ def get_args_parser():
     parser.add_argument('--edge_loss', action='store_true',
                         help='Add edge loss')
     
+    parser.add_argument('--depth_scale_loss', action='store_true',
+                        help='scale up the loss with ground truth depth values')
+    
     parser.add_argument('--pixel_shuffle', action='store_true',
                         help='pixel shuffle upsampling head')
     parser.add_argument('--grid_reshape', action='store_true',
                         help='grid reshape image')
     parser.add_argument('--circular_padding', action='store_true',
                         help='circular padding, kernel size is 1, 8 and stride is 1, 4')
+    parser.add_argument('--pixel_shuffle_expanding', action='store_true',
+                        help='pixel shuffle upsampling in expanding path')
     
 
     parser.add_argument('--norm_pix_loss', action='store_true',
@@ -120,6 +128,8 @@ def get_args_parser():
                         help='Do not random erase first (clean) augmentation split')
 
     # Dataset parameters
+    parser.add_argument('--dataset_select', default='durlar', type=str, choices=['durlar', 'carla', 'image-net'])
+
     parser.add_argument('--gray_scale', action="store_true", help='use gray scale imgae')
     parser.add_argument('--img_size_low_res', nargs="+", type=int, help='low resolution image size, given in format h w')
     parser.add_argument('--img_size_high_res', nargs="+", type=int, help='high resolution image size, given in format h w')
@@ -139,6 +149,8 @@ def get_args_parser():
     parser.add_argument('--log_transform', action="store_true", help='apply log1p transform to data')
     parser.add_argument('--keep_close_scan', action="store_true", help='mask out pixel belonging to further object')
     parser.add_argument('--keep_far_scan', action="store_true", help='mask out pixel belonging to close object')
+
+    parser.add_argument('--roll', action="store_true", help='random roll range map in vertical direction')
     
     
 
@@ -176,6 +188,8 @@ def get_args_parser():
     parser.add_argument('--run_name', type = str, default = None)
 
     parser.add_argument('--eval', action='store_true', help="evaluation")
+    parser.add_argument('--mc_drop', action='store_true', help="apply monte carlo dropout at inference time")
+    parser.add_argument('--noise_threshold', type = float, default=0.03, help="threshold of monte carlo dropout")
     
     
     return parser
@@ -199,8 +213,17 @@ def main(args):
 
     cudnn.benchmark = True
 
-    dataset_train = build_durlar_upsampling_dataset(is_train = True, args = args)
-    dataset_val = build_durlar_upsampling_dataset(is_train = False, args = args)
+    if args.dataset_select == 'durlar':
+        dataset_train = build_durlar_upsampling_dataset(is_train = True, args = args)
+        dataset_val = build_durlar_upsampling_dataset(is_train = False, args = args)
+    elif args.dataset_select == 'carla':
+        dataset_train = build_carla_upsampling_dataset(is_train = True, args = args)
+        dataset_val = build_carla_upsampling_dataset(is_train = False, args = args)
+    else:
+        raise NotImplementedError("Cannot find the matched dataset builder")
+    
+    
+    
     print(f"There are totally {len(dataset_train)} training data and {len(dataset_val)} validation data")
 
 
@@ -259,13 +282,17 @@ def main(args):
     
     # define the model
     model = swin_unet.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
+                                                  target_img_size = tuple(args.img_size_high_res),
                                                     patch_size = tuple(args.patch_size), 
                                                     in_chans = args.in_chans,
                                                     window_size = args.window_size,
                                                     edge_loss = args.edge_loss,
                                                     pixel_shuffle = args.pixel_shuffle,
                                                     grid_reshape = args.grid_reshape,
-                                                    circular_padding = args.circular_padding,)
+                                                    circular_padding = args.circular_padding,
+                                                    log_transform = args.log_transform,
+                                                    depth_scale_loss = args.depth_scale_loss,
+                                                    pixel_shuffle_expanding = args.pixel_shuffle_expanding,)
         
     # Load pretrained model
     if args.pretrain is not None:
@@ -312,10 +339,15 @@ def main(args):
                 args=args, model_without_ddp=model, optimizer=None,
                 loss_scaler=None)
         model.to(device)
-
+        
         print("Start Evaluation")
-        evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
+        if args.mc_drop:
+            print("Apply Monte-Carlo Dropout")
+            MCdrop(data_loader_val, model, device, log_writer = log_writer, args = args)
+        else:
+            evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
         print("Evaluation finished")
+
 
         exit(0)
         
@@ -381,7 +413,11 @@ def main(args):
 
     
     print("Start Evaluation")
-    evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
+    if args.mc_drop:
+        print("Apply Monte-Carlo Dropout")
+        MCdrop(data_loader_val, model, device, log_writer = log_writer, args = args)
+    else:
+        evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
     print("Evaluation finished")
 
     if global_rank == 0:

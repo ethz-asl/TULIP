@@ -7,22 +7,23 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 
 args=(
-    --batch_size 8
-    --epochs 60
+    --batch_size 16
+    --epochs 100
     --num_workers 2
     --lr 5e-4
-    --weight_decay 0.0005
-    --warmup_epochs 10
+    --weight_decay 0.01
+    --warmup_epochs 20 
     --optimizer adamw
     # --eval
     # Model parameters
     # --curriculum_learning
     --model_select swin_mae
-    --model swin_mae_v2_patch2_base_line
-    # --model swin_mae_patch2_base_line_ws4
+    --model swin_mae_patch2_base_line_ws4
     --grid_reshape
     --circular_padding
     --conv_projection
+    --log_transform
+    --pixel_shuffle_expanding
     # --eval
     # Dataset
     --data_path /cluster/work/riner/users/biyang/dataset/depth_intensity_large_low_res
@@ -31,11 +32,11 @@ args=(
     # --crop
     --loss_on_unmasked
     # WandB Parameters
-    --run_name grid_reshape_+circularpadding+convprojection+swinv2_ws4
+    --run_name gpc+pse+logloss_swinv1_100epcohs+warmup20_mr075
     --entity biyang
     --project_name swin_mae_lowres_durlar
     # --wandb_disabled
-    --output_dir ./experiment/durlar/LowRes/GridReshape_CircularPadding_ConvProjection_SwinV2_ws4
+    --output_dir ./experiment/durlar/LowRes/GPC_PSE_LogLoss_Swinv1_100epochs_warmup20_mr075
     --mask_ratio 0.75
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     --img_size 32 2048

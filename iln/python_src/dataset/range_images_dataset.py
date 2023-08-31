@@ -35,11 +35,11 @@ class DurlarDataset(Dataset):
 
 
 
-        self.input_filenames = [os.path.join(low_res_path, f) for f in os.listdir(low_res_path) if f.endswith('.png')]
+        self.input_filenames = [os.path.join(low_res_path, f) for f in os.listdir(low_res_path) if f.endswith('.npy')]
         self.input_filenames.sort()
 
 
-        self.output_filenames = [os.path.join(high_res_path, f) for f in os.listdir(high_res_path) if f.endswith('.png')]
+        self.output_filenames = [os.path.join(high_res_path, f) for f in os.listdir(high_res_path) if f.endswith('.npy')]
         self.output_filenames.sort()
 
         assert (len(self.input_filenames) == len(self.output_filenames))
@@ -71,12 +71,12 @@ class DurlarDataset(Dataset):
         output_range_image = read_range_durlar(output_range_image_filename)
 
         # Crop the values out of the detection range
-        # input_range_image[input_range_image < 10e-10] = self.lidar_in['norm_r']
-        # input_range_image[input_range_image < self.lidar_in['min_r']] = 0.0
-        # input_range_image[input_range_image > self.lidar_in['max_r']] = self.lidar_in['norm_r']
-        # output_range_image[output_range_image < 10e-10] = self.lidar_out['norm_r']
-        # output_range_image[output_range_image < self.lidar_out['min_r']] = 0.0
-        # output_range_image[output_range_image > self.lidar_out['max_r']] = self.lidar_out['norm_r']
+        input_range_image[input_range_image < 10e-10] = self.lidar_in['norm_r']
+        input_range_image[input_range_image < self.lidar_in['min_r'] / self.lidar_in['max_r']] = 0.0
+        input_range_image[input_range_image > self.lidar_in['max_r'] / self.lidar_in['max_r']] = self.lidar_in['norm_r']
+        output_range_image[output_range_image < 10e-10] = self.lidar_out['norm_r']
+        output_range_image[output_range_image < self.lidar_out['min_r'] / self.lidar_in['max_r']] = 0.0
+        output_range_image[output_range_image > self.lidar_out['max_r'] / self.lidar_in['max_r']] = self.lidar_out['norm_r']
 
         # Normalization ([0, 1] -> [-1, 1])
         input_range_image *= 2.0

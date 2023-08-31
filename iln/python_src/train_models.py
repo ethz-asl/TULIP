@@ -171,7 +171,7 @@ if __name__ == '__main__':
     batch_size = args.batch
     train_dataset = generate_dataset(config['dataset'])
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4)
 
     model = generate_model(config['model']['name'], config['model']['args']).train()
     optimizer = optim.Adam(params=list(model.parameters()), lr=1e-4)

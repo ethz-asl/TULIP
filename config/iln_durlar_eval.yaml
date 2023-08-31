@@ -13,15 +13,13 @@ model:
   name: iln
   output: /cluster/work/riner/users/biyang/experiment/iln
   args:
-    d: 0
+    d: 4
     h: 8
 
 logger:
   wandb_disabled: False
-  # evaluation = False
-  # save_pcd = False
-  # project_name = "lidar_sr_network"
-  project_name: 'implicit_lidar_network'
+  project_name: "experiment_upsampling_pt4"
+  # project_name: 'implicit_lidar_network'
   entity: "biyang"
-  run_name: "baseline_train_70epochs_evaluation"
+  run_name: "eval:iln_4d_50epochs"
   save_pcd: True

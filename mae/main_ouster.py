@@ -88,7 +88,10 @@ def get_args_parser():
                         help='circular padding, kernel size is 1, 8 and stride is 1, 4')
     parser.add_argument('--conv_projection', action='store_true',
                         help='use a conv2d layer for the final decoder projection instead of a linear layer')
-    parser.set_defaults(norm_pix_loss=False)
+    parser.add_argument('--log_transform', action="store_true", help='apply log1p transform to data')
+    parser.add_argument('--pixel_shuffle_expanding', action='store_true',
+                        help='pixel shuffle upsampling in expanding path')
+    # parser.set_defaults(norm_pix_loss=False)
     
     # Optimizer parameters
     parser.add_argument('--optimizer', type=str, default='adamw',
@@ -140,7 +143,6 @@ def get_args_parser():
     parser.add_argument('--use_intensity', action="store_true", help='use the intensity as the second channel')
     parser.add_argument('--reverse_pixel_value', action="store_true", help='reverse the pixel value in the input')
     parser.add_argument('--save_pcd', action="store_true", help='save pcd output in evaluation step')
-    parser.add_argument('--log_transform', action="store_true", help='apply log1p transform to data')
     
 
     # Training parameters
@@ -285,7 +287,9 @@ def main(args):
                                                      in_chans = args.in_chans,
                                                      circular_padding = args.circular_padding,
                                                      grid_reshape = args.grid_reshape,
-                                                     conv_projection = args.conv_projection,)
+                                                     conv_projection = args.conv_projection,
+                                                     pixel_shuffle_expanding = args.pixel_shuffle_expanding,
+                                                     log_transform = args.log_transform,)
         
     # Load pretrained model
     if args.pretrain is not None:

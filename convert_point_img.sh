@@ -10,6 +10,7 @@ args=(
     --input_path /cluster/work/riner/users/biyang/dataset/DurLAR/DurLAR_20210716/
     # --color
     --normalize
+    --max_range 120
     )
 
 python durlar_utils/get_intensity_depth.py "${args[@]}"
