@@ -31,6 +31,9 @@ from util.evaluation import *
 from util.filter import *
 import trimesh
 
+import time
+import tqdm
+
 cNorm = colors.Normalize(vmin=0, vmax=1)
 jet = plt.get_cmap('viridis_r')
 scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=jet)
@@ -137,16 +140,20 @@ def evaluate(data_loader, model, device, log_writer, args=None):
     # switch to evaluation mode
     model.eval()
 
-    grid_size = 0.1
+    grid_size = args.grid_size
     global_step = 0
     total_loss = 0
     total_iou = 0
     total_cd = 0
     local_step = 0
+    dataset_size = len(data_loader)
 
     # iterator = iter(data_loader)
 
-    for batch in data_loader:
+    for batch in tqdm.tqdm(data_loader):
+
+        # start_time = time.time()
+
         images_low_res = batch[0][0] # (B=1, C, H, W)
         images_high_res = batch[1][0] # (B=1, C, H, W)
 
@@ -168,6 +175,13 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             # Visulize less for carla dataset
 
             # Preprocess the image
+            if args.log_transform:
+                # print("Logarithmus Transform back the prediction and ground-truth images")
+                total_loss_one_input = (pred_img - images_high_res).abs().mean()
+                pred_img = torch.expm1(pred_img)
+                images_high_res = torch.expm1(images_high_res)
+                images_low_res = torch.expm1(images_low_res)
+
             
             if args.dataset_select == "carla":
                 pred_img = torch.where((pred_img >= 2/80) & (pred_img <= 1), pred_img, 0)
@@ -176,17 +190,8 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             else:
                 print("Not Preprocess the pred image")
             
-            if args.log_transform:
-                total_loss_one_input = (torch.log1p(pred_img) - torch.log1p(images_high_res)).abs().mean()
-            pixel_loss_one_input = (pred_img - images_high_res).abs().mean()
-
-
             loss_map = (pred_img -images_high_res).abs()
-            loss_map_normalized = (loss_map - loss_map.min()) / (loss_map.max() - loss_map.min() + 1e-8)
-
-            loss_map_normalized = loss_map_normalized.permute(0, 2, 3, 1).squeeze()
-            loss_map_normalized = loss_map_normalized.detach().cpu().numpy()
-            loss_map_normalized = scalarMap_loss_map.to_rgba(loss_map_normalized)[..., :3]
+            pixel_loss_one_input = loss_map.mean()
 
             images_high_res = images_high_res.permute(0, 2, 3, 1).squeeze()
             images_low_res = images_low_res.permute(0, 2, 3, 1).squeeze()
@@ -198,10 +203,24 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             images_low_res = images_low_res.detach().cpu().numpy()
 
             if args.dataset_select == "carla":
-                loss_low_res_part = 0
-                
+
+                if tuple(args.img_size_low_res)[1] != tuple(args.img_size_high_res)[1]:
+                    loss_low_res_part = 0
+                else:
+                    low_res_index = range(0, h_high_res, downsampling_factor)
+
+                    # Evaluate the loss of low resolution part
+                    pred_low_res_part = pred_img[low_res_index, :]
+                    loss_low_res_part = np.abs(pred_low_res_part - images_low_res)
+                    loss_low_res_part = loss_low_res_part.mean()
+
+                    pred_img[low_res_index, :] = images_low_res
+
                 # Carla has different projection process as durlar
                 # Refer to code in iln github
+                pred_img = np.flip(pred_img)
+                images_high_res = np.flip(images_high_res)
+
                 pcd_pred = img_to_pcd_carla(pred_img, maximum_range = 80)
                 pcd_gt = img_to_pcd_carla(images_high_res, maximum_range = 80)
 
@@ -211,7 +230,7 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 
                 # Evaluate the loss of low resolution part
                 pred_low_res_part = pred_img[low_res_index, :]
-                loss_low_res_part = (pred_low_res_part - images_low_res).mean()
+                loss_low_res_part = np.abs(pred_low_res_part - images_low_res)
                 loss_low_res_part = loss_low_res_part.mean()
 
                 pred_img[low_res_index, :] = images_low_res
@@ -224,80 +243,101 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                 pcd_pred = img_to_pcd(pred_img, maximum_range= 120)
                 pcd_gt = img_to_pcd(images_high_res, maximum_range = 120)
 
+            # time_proj = time.time() - start_time
+            # print("Time for projection: ", time_proj)
+
             pcd_all = np.vstack((pcd_pred, pcd_gt))
 
             chamfer_dist = chamfer_distance(pcd_gt, pcd_pred)
+
+            # time_cd = time.time() - time_proj
+            # print("Time for chamfer distance", time_cd)
+
             min_coord = np.min(pcd_all, axis=0)
             max_coord = np.max(pcd_all, axis=0)
             
+
             # Voxelize the ground truth and prediction point clouds
             voxel_grid_predicted = voxelize_point_cloud(pcd_pred, grid_size, min_coord, max_coord)
             voxel_grid_ground_truth = voxelize_point_cloud(pcd_gt, grid_size, min_coord, max_coord)
+
+
+            # time_voxelize = time.time() - time_cd
+            # print("Time for voxelize", time_voxelize)
+
+
             # Calculate metrics
             iou, precision, recall = calculate_metrics(voxel_grid_predicted, voxel_grid_ground_truth)
+
+            # time_metrics = time.time() - time_voxelize
+            # print("Time for metrics", time_metrics)
+
+
+            if global_step % 100 == 0 or global_step == 1:
+                loss_map_normalized = (loss_map - loss_map.min()) / (loss_map.max() - loss_map.min() + 1e-8)
+
+                loss_map_normalized = loss_map_normalized.permute(0, 2, 3, 1).squeeze()
+                loss_map_normalized = loss_map_normalized.detach().cpu().numpy()
+                loss_map_normalized = scalarMap_loss_map.to_rgba(loss_map_normalized)[..., :3]
+
+                images_high_res = scalarMap.to_rgba(images_high_res)[..., :3]
+                pred_img = scalarMap.to_rgba(pred_img)[..., :3]
+                # vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
+                vis_grid = make_grid([torch.Tensor(images_high_res).permute(2, 0, 1), 
+                                    torch.Tensor(pred_img).permute(2, 0, 1),
+                                    torch.Tensor(loss_map_normalized).permute(2, 0, 1)], nrow=1)
+                if args.log_transform or args.depth_scale_loss:
+                    log_writer.add_scalar('Test/logtransform_mse_all', total_loss_one_input.item(), local_step)
+                log_writer.add_image('gt - pred', vis_grid, local_step)
+                log_writer.add_scalar('Test/mse_all', pixel_loss_one_input.item(), local_step)
+
+                log_writer.add_scalar('Test/mse_low_res', loss_low_res_part, local_step)
+                log_writer.add_scalar('Test/chamfer_dist', chamfer_dist, local_step)
+                log_writer.add_scalar('Test/iou', iou, local_step)
+                log_writer.add_scalar('Test/precision', precision, local_step)
+                log_writer.add_scalar('Test/recall', recall, local_step)
+
+                if args.save_pcd:
+                
+                    if local_step % 4 == 0:
+                        pcd_outputpath = os.path.join(args.output_dir, 'pcd')
+                        if not os.path.exists(pcd_outputpath):
+                            os.mkdir(pcd_outputpath)
+                        pcd_pred_color = np.zeros_like(pcd_pred)
+                        pcd_pred_color[:, 0] = 255
+                        pcd_gt_color = np.zeros_like(pcd_gt)
+                        pcd_gt_color[:, 2] = 255
+                        
+                        # pcd_all_color = np.vstack((pcd_pred_color, pcd_gt_color))
+
+                        point_cloud_pred = trimesh.PointCloud(
+                            vertices=pcd_pred,
+                            colors=pcd_pred_color)
+                        
+                        point_cloud_gt = trimesh.PointCloud(
+                            vertices=pcd_gt,
+                            colors=pcd_gt_color)
+                        
+                        point_cloud_pred.export(os.path.join(pcd_outputpath, f"pred_{local_step}.ply"))  
+                        point_cloud_gt.export(os.path.join(pcd_outputpath, f"gt_{local_step}.ply")) 
+
+                local_step += 1
+
 
             total_iou += iou
             total_cd += chamfer_dist
             total_loss += pixel_loss_one_input.item()
 
-            if args.dataset_select == "carla":
-                if local_step % 20 != 0:
-                    local_step += 1
-                    continue
-
-            if args.save_pcd:
-                
-                if local_step % 4 == 0:
-                    pcd_outputpath = os.path.join(args.output_dir, 'pcd')
-                    if not os.path.exists(pcd_outputpath):
-                        os.mkdir(pcd_outputpath)
-                    pcd_pred_color = np.zeros_like(pcd_pred)
-                    pcd_pred_color[:, 0] = 255
-                    pcd_gt_color = np.zeros_like(pcd_gt)
-                    pcd_gt_color[:, 2] = 255
-                    
-                    # pcd_all_color = np.vstack((pcd_pred_color, pcd_gt_color))
-
-                    point_cloud_pred = trimesh.PointCloud(
-                        vertices=pcd_pred,
-                        colors=pcd_pred_color)
-                    
-                    point_cloud_gt = trimesh.PointCloud(
-                        vertices=pcd_gt,
-                        colors=pcd_gt_color)
-                    
-                    point_cloud_pred.export(os.path.join(pcd_outputpath, f"pred_{local_step}.ply"))  
-                    point_cloud_gt.export(os.path.join(pcd_outputpath, f"gt_{local_step}.ply"))    
-
-            # exit(0)
-
-            images_high_res = scalarMap.to_rgba(images_high_res)[..., :3]
-            pred_img = scalarMap.to_rgba(pred_img)[..., :3]
-            # vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
-            vis_grid = make_grid([torch.Tensor(images_high_res).permute(2, 0, 1), 
-                                  torch.Tensor(pred_img).permute(2, 0, 1),
-                                  torch.Tensor(loss_map_normalized).permute(2, 0, 1)], nrow=1)
-            if args.log_transform or args.depth_scale_loss:
-                log_writer.add_scalar('Test/logtransform_mse_all', total_loss_one_input.item(), local_step)
-            log_writer.add_image('gt - pred', vis_grid, local_step)
-            log_writer.add_scalar('Test/mse_all', pixel_loss_one_input.item(), local_step)
-
-            log_writer.add_scalar('Test/mse_low_res', loss_low_res_part, local_step)
-            log_writer.add_scalar('Test/chamfer_dist', chamfer_dist, local_step)
-            log_writer.add_scalar('Test/iou', iou, local_step)
-            log_writer.add_scalar('Test/precision', precision, local_step)
-            log_writer.add_scalar('Test/recall', recall, local_step)
-
-            local_step += 1
-
             
-            
+
+            # print("Time for one iteration", time.time() - start_time)
+               
         
     # results = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     avg_loss = total_loss / global_step
     if log_writer is not None:
-        log_writer.add_scalar('Metrics/test_average_iou', total_iou/local_step, 0)
-        log_writer.add_scalar('Metrics/test_average_cd', total_cd/local_step, 0)
+        log_writer.add_scalar('Metrics/test_average_iou', total_iou/global_step, 0)
+        log_writer.add_scalar('Metrics/test_average_cd', total_cd/global_step, 0)
         log_writer.add_scalar('Metrics/test_average_loss', avg_loss, 0)
 
 
@@ -322,7 +362,7 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
     model.eval()
     enable_dropout(model)
 
-    grid_size = 0.1
+    grid_size = args.grid_size
     global_step = 0
     total_loss = 0
     local_step = 0
@@ -330,7 +370,7 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
     total_cd = 0
     # iterator = iter(data_loader)
 
-    for batch in data_loader:
+    for batch in tqdm.tqdm(data_loader):
         images_low_res = batch[0][0] # (B=1, C, H, W)
         images_high_res = batch[1][0] # (B=1, C, H, W)
 
@@ -363,6 +403,13 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
 
         # loss = criterion(pred_img, images_high_res)
         if log_writer is not None:
+
+            if args.log_transform:
+                # print("Logarithmus Transform back the prediction and ground-truth images")
+                total_loss_one_input = (pred_img - images_high_res).abs().mean()
+                pred_img = torch.expm1(pred_img)
+                images_high_res = torch.expm1(images_high_res)
+                images_low_res = torch.expm1(images_low_res)
             
 
              # Preprocess the image
@@ -372,19 +419,11 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                 pred_img = torch.where((pred_img >= 0.3/120) & (pred_img <= 1), pred_img, 0)
             else:
                 print("Not Preprocess the pred image")
-
-
-            if args.log_transform:
-                total_loss_one_input = (torch.log1p(pred_img) - torch.log1p(images_high_res)).abs().mean()
-            pixel_loss_one_input = (pred_img - images_high_res).abs().mean()
-
-
+            
             loss_map = (pred_img -images_high_res).abs()
-            loss_map_normalized = (loss_map - loss_map.min()) / (loss_map.max() - loss_map.min() + 1e-8)
-
-            loss_map_normalized = loss_map_normalized.permute(0, 2, 3, 1).squeeze()
-            loss_map_normalized = loss_map_normalized.detach().cpu().numpy()
-            loss_map_normalized = scalarMap_loss_map.to_rgba(loss_map_normalized)[..., :3]
+            pixel_loss_one_input = loss_map.mean()
+            
+            
             
 
             images_high_res = images_high_res.permute(0, 2, 3, 1).squeeze()
@@ -399,10 +438,22 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
 
 
             if args.dataset_select == "carla":
-                loss_low_res_part = 0
-                
+                if tuple(args.img_size_low_res)[1] != tuple(args.img_size_high_res)[1]:
+                    loss_low_res_part = 0
+                else:
+                    low_res_index = range(0, h_high_res, downsampling_factor)
+
+                    # Evaluate the loss of low resolution part
+                    pred_low_res_part = pred_img[low_res_index, :]
+                    loss_low_res_part = np.abs(pred_low_res_part - images_low_res)
+                    loss_low_res_part = loss_low_res_part.mean()
+
+                    pred_img[low_res_index, :] = images_low_res
+
                 # Carla has different projection process as durlar
                 # Refer to code in iln github
+                pred_img = np.flip(pred_img)
+                images_high_res = np.flip(images_high_res)
                 pcd_pred = img_to_pcd_carla(pred_img, maximum_range = 80)
                 pcd_gt = img_to_pcd_carla(images_high_res, maximum_range = 80)
 
@@ -412,7 +463,7 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
 
                 # Evaluate the loss of low resolution part
                 pred_low_res_part = pred_img[low_res_index, :]
-                loss_low_res_part = (pred_low_res_part - images_low_res).mean()
+                loss_low_res_part = np.abs(pred_low_res_part - images_low_res)
                 loss_low_res_part = loss_low_res_part.mean()
 
                 pred_img[low_res_index, :] = images_low_res
@@ -433,72 +484,74 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             # Calculate metrics
             iou, precision, recall = calculate_metrics(voxel_grid_predicted, voxel_grid_ground_truth)
 
+            
+            if global_step % 100 == 0 or global_step == 1:
+                loss_map_normalized = (loss_map - loss_map.min()) / (loss_map.max() - loss_map.min() + 1e-8)
+                loss_map_normalized = loss_map_normalized.permute(0, 2, 3, 1).squeeze()
+                loss_map_normalized = loss_map_normalized.detach().cpu().numpy()
+                loss_map_normalized = scalarMap_loss_map.to_rgba(loss_map_normalized)[..., :3]
+
+                images_high_res = scalarMap.to_rgba(images_high_res)[..., :3]
+                pred_img = scalarMap.to_rgba(pred_img)[..., :3]
+                # vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
+                vis_grid = make_grid([torch.Tensor(images_high_res).permute(2, 0, 1), 
+                                    torch.Tensor(pred_img).permute(2, 0, 1),
+                                    torch.Tensor(loss_map_normalized).permute(2, 0, 1)], nrow=1)
+
+                if args.log_transform or args.depth_scale_loss:
+                    log_writer.add_scalar('Test/logtransform_mse_all', total_loss_one_input.item(), local_step)
+                # vis_grid_egde = make_grid([torch.Tensor(np.expand_dims(gt_edges / 255, axis = -1)).permute(2, 0, 1), torch.Tensor(np.expand_dims(pred_edges / 255, axis = -1)).permute(2, 0, 1)], nrow=1)
+                log_writer.add_image('gt - pred', vis_grid, local_step)
+                # log_writer.add_image('gt - pred (edges)', vis_grid_egde, local_step)
+                log_writer.add_scalar('Test/mse_all', pixel_loss_one_input.item(), local_step)
+
+                log_writer.add_scalar('Test/mse_low_res', loss_low_res_part, local_step)
+                log_writer.add_scalar('Test/chamfer_dist', chamfer_dist, local_step)
+                log_writer.add_scalar('Test/iou', iou, local_step)
+                log_writer.add_scalar('Test/precision', precision, local_step)
+                log_writer.add_scalar('Test/recall', recall, local_step)
+
+                if args.save_pcd:
+                    
+                    if local_step % 4 == 0:
+                        # pcd_outputpath = os.path.join(args.output_dir, 'pcd_mc_drop_smaller_noise_threshold')
+                        pcd_outputpath = os.path.join(args.output_dir, 'pcd_mc_drop')
+                        if not os.path.exists(pcd_outputpath):
+                            os.mkdir(pcd_outputpath)
+                        pcd_pred_color = np.zeros_like(pcd_pred)
+                        pcd_pred_color[:, 0] = 255
+                        pcd_gt_color = np.zeros_like(pcd_gt)
+                        pcd_gt_color[:, 2] = 255
+                        
+                        # pcd_all_color = np.vstack((pcd_pred_color, pcd_gt_color))
+
+                        point_cloud_pred = trimesh.PointCloud(
+                            vertices=pcd_pred,
+                            colors=pcd_pred_color)
+                        
+                        point_cloud_gt = trimesh.PointCloud(
+                            vertices=pcd_gt,
+                            colors=pcd_gt_color)
+                        
+                        point_cloud_pred.export(os.path.join(pcd_outputpath, f"pred_{local_step}.ply"))  
+                        point_cloud_gt.export(os.path.join(pcd_outputpath, f"gt_{local_step}.ply"))    
+
+                # exit(0)
+
+                
+
+                local_step += 1
+
             total_iou += iou
             total_cd += chamfer_dist
             total_loss += pixel_loss_one_input.item()
 
-            # Visulize less for carla dataset
-            if args.dataset_select == "carla":
-                if local_step % 20 != 0:
-                    local_step += 1
-                    continue
-
-            if args.save_pcd:
-                
-                if local_step % 4 == 0:
-                    # pcd_outputpath = os.path.join(args.output_dir, 'pcd_mc_drop_smaller_noise_threshold')
-                    pcd_outputpath = os.path.join(args.output_dir, 'pcd_mc_drop')
-                    if not os.path.exists(pcd_outputpath):
-                        os.mkdir(pcd_outputpath)
-                    pcd_pred_color = np.zeros_like(pcd_pred)
-                    pcd_pred_color[:, 0] = 255
-                    pcd_gt_color = np.zeros_like(pcd_gt)
-                    pcd_gt_color[:, 2] = 255
-                    
-                    # pcd_all_color = np.vstack((pcd_pred_color, pcd_gt_color))
-
-                    point_cloud_pred = trimesh.PointCloud(
-                        vertices=pcd_pred,
-                        colors=pcd_pred_color)
-                    
-                    point_cloud_gt = trimesh.PointCloud(
-                        vertices=pcd_gt,
-                        colors=pcd_gt_color)
-                    
-                    point_cloud_pred.export(os.path.join(pcd_outputpath, f"pred_{local_step}.ply"))  
-                    point_cloud_gt.export(os.path.join(pcd_outputpath, f"gt_{local_step}.ply"))    
-
-            # exit(0)
-
-            images_high_res = scalarMap.to_rgba(images_high_res)[..., :3]
-            pred_img = scalarMap.to_rgba(pred_img)[..., :3]
-            # vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
-            vis_grid = make_grid([torch.Tensor(images_high_res).permute(2, 0, 1), 
-                                  torch.Tensor(pred_img).permute(2, 0, 1),
-                                  torch.Tensor(loss_map_normalized).permute(2, 0, 1)], nrow=1)
-
-            if args.log_transform or args.depth_scale_loss:
-                log_writer.add_scalar('Test/logtransform_mse_all', total_loss_one_input.item(), local_step)
-            # vis_grid_egde = make_grid([torch.Tensor(np.expand_dims(gt_edges / 255, axis = -1)).permute(2, 0, 1), torch.Tensor(np.expand_dims(pred_edges / 255, axis = -1)).permute(2, 0, 1)], nrow=1)
-            log_writer.add_image('gt - pred', vis_grid, local_step)
-            # log_writer.add_image('gt - pred (edges)', vis_grid_egde, local_step)
-            log_writer.add_scalar('Test/mse_all', pixel_loss_one_input.item(), local_step)
-
-            log_writer.add_scalar('Test/mse_low_res', loss_low_res_part, local_step)
-            log_writer.add_scalar('Test/chamfer_dist', chamfer_dist, local_step)
-            log_writer.add_scalar('Test/iou', iou, local_step)
-            log_writer.add_scalar('Test/precision', precision, local_step)
-            log_writer.add_scalar('Test/recall', recall, local_step)
-
-            local_step += 1
-
-            
     
     # results = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     avg_loss = total_loss / global_step
     if log_writer is not None:
-        log_writer.add_scalar('Metrics/test_average_iou', total_iou/local_step, 0)
-        log_writer.add_scalar('Metrics/test_average_cd', total_cd/local_step, 0)
+        log_writer.add_scalar('Metrics/test_average_iou', total_iou/global_step, 0)
+        log_writer.add_scalar('Metrics/test_average_cd', total_cd/global_step, 0)
         log_writer.add_scalar('Metrics/test_average_loss', avg_loss, 0)
 
 

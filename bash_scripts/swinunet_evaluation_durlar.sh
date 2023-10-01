@@ -16,33 +16,37 @@ args=(
     --warmup_epochs 20
     # Model parameters
     --eval
+    --grid_size 0.1
     --mc_drop
     --noise_threshold 0.0005
     # --edge_loss
     # --model_select swin_unet_moredepths
     --model_select swin_unet
-    # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/GridReshape_CircularPadding_ConvProjection_ws4/checkpoint-59.pth
+    # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/GPC_PSE_LogLoss_Swinv1_100epochs_warmup20_mr075/checkpoint-99.pth
     # --pretrain /cluster/work/riner/users/biyang/pretrained_mae/swinv2_small_patch4_window8_256.pth
     # --pretrain_only_encoder
+    # --pretrain_mae_model swin_mae_patch4_base
+    # --perceptual_loss
     --pixel_shuffle
     --circular_padding
     --grid_reshape
     --pixel_shuffle_expanding
+    # --relative_dist_loss
     # Dataset
     --dataset_select durlar
     --log_transform
-    --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large_low_res
+    --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_new
     # --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
-    --data_path_high_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
+    --data_path_high_res /cluster/work/riner/users/biyang/dataset/depth_intensity_new
     # --keep_close_scan
     --save_pcd
     # WandB Parameters
     # --run_name p+c+g+swinv1_deeper+300epcohs+warmup40
-    --run_name eval_mcdrop0.0005:p+c+g+pse+logloss_swinv1_300epcohs+warmup40
+    --run_name Ours-MCDrop:pretrain500_onlyencoder_500epochs
     --entity biyang
     # --wandb_disabled
-    --project_name experiment_upsampling_pt4
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_3/GPC_PSE_LogLoss_Swinv1_300epochs_warmup40/
+    --project_name durlar_evaluation
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_4/128_2048_32x2048pretrain500_onlyencoder/
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048
@@ -58,4 +62,4 @@ args=(
 
 # python mae/main_ouster.py "${args[@]}"   
 #python -m torch.distributed.launch --nproc_per_node=2 mae/main_ouster.py "${args[@]}"
-torchrun --nproc_per_node=4 mae/main_ouster_upsampling.py "${args[@]}"
+torchrun --nproc_per_node=1 mae/main_ouster_upsampling.py "${args[@]}"

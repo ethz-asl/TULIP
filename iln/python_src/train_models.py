@@ -205,7 +205,7 @@ if __name__ == '__main__':
                 entity=config['logger']['entity'],
                 name = config['logger']['run_name'], 
                 mode=mode,
-                group="DDP" if n_gpus > 1 else "Single_GPU",)
+                group=config['logger']['group_name'],)
 
     model.cuda()
 
@@ -225,9 +225,9 @@ if __name__ == '__main__':
     print("===============================================================  \n")
 
     # NOTE: The training approaches are different according to the type of network structure
-    if config['dataset']['type'] == 'range_images':
+    if config['dataset']['type'] in ['range_images', 'range_images_durlar', 'range_images_kitti']:
         train_pixel_based_network()
-    elif config['dataset']['type'] == 'range_samples_from_image' or config['dataset']['type'] == 'range_samples_from_durlar':
+    elif config['dataset']['type'] in ['range_samples_from_image', 'range_samples_from_durlar', 'range_samples_from_kitti']:
         train_implicit_network()
 
 

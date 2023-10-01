@@ -34,6 +34,9 @@ def read_args():
     parser.add_argument("--color", action="store_true", help="Use colormap to map the depth value to rgb channel")
     parser.add_argument("--normalize", action="store_true", help="Normalize range map with LiDAR max range")
 
+
+    parser.add_argument('--range', nargs="+", type=int, help='start and end frame number')
+
    
     return parser.parse_args()
 
@@ -135,8 +138,9 @@ for path in output_folders:
 
 files = os.listdir(ouster_points_path)
 files.sort()
+start_frame, end_frame = tuple(flags.range)
 for i, bin_filepath in enumerate(files):
-    if i <= 40000 or i > 42000:
+    if i <= start_frame or i > end_frame:
         continue
     # if i > 42000:
     #     break

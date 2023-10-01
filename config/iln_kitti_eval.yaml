@@ -1,0 +1,23 @@
+dataset:
+  name: Kitti
+  type: range_samples_from_kitti
+  args:
+    directory: /cluster/work/riner/users/biyang/iln/samples/
+    high_res_path: /cluster/work/riner/users/biyang/dataset/KITTI/train20000
+    low_res_path: /cluster/work/riner/users/biyang/dataset/KITTI/train20000
+    num_of_samples: 16384
+
+model:
+  name: iln
+  output: /cluster/work/riner/users/biyang/experiment/kitti/iln_d1/
+  args:
+    d: 1
+    h: 8
+
+logger:
+  wandb_disabled: False
+  # evaluation = False
+  save_pcd: True
+  project_name: 'sota_kitti'
+  entity: "biyang"
+  run_name: "iln_d1-xxxepochs"

@@ -16,5 +16,11 @@ test.py
 *.png
 iln/build
 iln/extern
-iln/python_src/voxelizer.cpython-39-x86_64-linux-gnu.so
+iln/src/voxelizer.cpython-39-x86_64-linux-gnu.so
+iln/src/voxelizer.egg-info/
+carla_simulator/
+chamferdist/
+*.ply
+kitti_utils/KITTI_Tutorial/
+
 

@@ -21,7 +21,7 @@ import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from util.datasets import build_dataset, build_durlar_dataset, build_depth_intensity_dataset
+from util.datasets import build_dataset, build_durlar_pretraining_dataset, build_depth_intensity_dataset, build_carla_pretraining_dataset
 from util.pos_embed import interpolate_pos_embed
 
 import timm
@@ -130,6 +130,8 @@ def get_args_parser():
                         help='Do not random erase first (clean) augmentation split')
 
     # Dataset parameters
+    parser.add_argument('--dataset_select', default='durlar', type=str, choices=['durlar', 'carla', 'image-net'])
+
     parser.add_argument('--gray_scale', action="store_true", help='use gray scale imgae')
     parser.add_argument('--imagenet', action="store_true", help='use imagenet for test')
     parser.add_argument('--img_size', nargs="+", type=int, help='image size, given in format h w')
@@ -216,8 +218,16 @@ def main(args):
             dataset_train = build_depth_intensity_dataset(is_train=True, args=args)
             dataset_val = build_depth_intensity_dataset(is_train=False, args=args)
         else:
-            dataset_train = build_durlar_dataset(is_train=True, args=args)
-            dataset_val = build_durlar_dataset(is_train=False, args=args)
+            if args.dataset_select == 'durlar':
+                dataset_train = build_durlar_pretraining_dataset(is_train=True, args=args)
+                dataset_val = build_durlar_pretraining_dataset(is_train=False, args=args)
+            elif args.dataset_select == 'carla':
+                dataset_train = build_carla_pretraining_dataset(is_train=True, args=args)
+                dataset_val = build_carla_pretraining_dataset(is_train=False, args=args)
+
+            else:
+                raise NotImplementedError("Cannot find the matched dataset builder")
+            
         
     print(f"There are totally {len(dataset_train)} training data and {len(dataset_val)} validation data")
 
@@ -381,10 +391,13 @@ def main(args):
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
 
+
+    print("Training finished")
+
     
-    print("Start Evaluation")
-    evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
-    print("Evaluation finished")
+    # print("Start Evaluation")
+    # evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
+    # print("Evaluation finished")
 
     if global_rank == 0:
         wandb.finish()

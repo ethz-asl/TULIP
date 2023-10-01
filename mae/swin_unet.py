@@ -37,7 +37,7 @@ class PatchEmbedding(nn.Module):
         
         self.circular_padding = circular_padding
         if circular_padding:
-            self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=(1, 8), stride=patch_size)
+            self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=(self.patch_size[0], 8), stride=patch_size)
             # self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=(8, 1), stride=patch_size)
             # New Projection # Pixel Wise Embedding
             # self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=patch_size, stride=(1, 1))
@@ -506,6 +506,7 @@ class BasicBlockUpV2(nn.Module):
                  drop_rate: float = 0., attn_drop_rate: float = 0., drop_path: float = 0.1,
                  patch_expanding: bool = True, norm_layer=nn.LayerNorm, pixel_shuffle_expanding: bool = False):
         super(BasicBlockUpV2, self).__init__()
+        
         index = len(depths) - index - 2
         depth = depths[index]
         dim = embed_dim * 2 ** index
@@ -559,7 +560,7 @@ class SwinUnet(nn.Module):
                  mlp_ratio: float = 4., qkv_bias: bool = True, drop_rate: float = 0., attn_drop_rate: float = 0.,
                  drop_path_rate: float = 0.1, norm_layer=nn.LayerNorm, patch_norm: bool = True, edge_loss: bool = False, pixel_shuffle: bool = False,
                  grid_reshape: bool = False, circular_padding: bool = False, swin_v2: bool = False, log_transform: bool = False, depth_scale_loss: bool = False,
-                 pixel_shuffle_expanding: bool = False):
+                 pixel_shuffle_expanding: bool = False, relative_dist_loss: bool = False, perceptual_loss: bool = False, pretrain_mae: nn.Module = None):
         super().__init__()
 
         self.window_size = window_size
@@ -575,6 +576,20 @@ class SwinUnet(nn.Module):
         self.norm_layer = norm_layer
         self.img_size = img_size
         self.target_img_size = target_img_size
+        self.relative_dist_loss = relative_dist_loss
+        self.perceptual_loss = perceptual_loss
+
+        if self.perceptual_loss:
+            assert pretrain_mae is not None, "Pretrain MAE model is not provided"
+            self.pretrain_mae = pretrain_mae
+            # Target is already logtransfromed
+            # self.perceptual_loss_criterion = nn.KLDivLoss(reduction='batchmean', log_target=False)
+            # self.perceptual_loss_criterion = nn.CosineSimilarity(reduction='batchmean')
+            self.perceptual_loss_criterion = nn.MSELoss()
+            # downsampling_factor = target_img_size[0] // img_size[0]
+            # self.low_res_index = range(0, target_img_size[0], downsampling_factor)
+
+
 
         self.patch_embed = PatchEmbedding(
             img_size = img_size, patch_size=patch_size, in_c=in_chans, embed_dim=embed_dim,
@@ -755,33 +770,92 @@ class SwinUnet(nn.Module):
             skip_connection_layers.append(layer)
         return skip_connection_layers
     
-    def forward_loss(self, pred, target):
+    
+    # TODO: Add relative loss function:
+    def row_relative_loss(self, pred, target, num_pixels = 500, num_neighbors = 8):
+        
+        B, C, H, W = pred.shape
+        loss = 0
+        for i in range(B):
+        
+            sampler_h = torch.randint(0, H, size = (num_pixels,),device=pred.device)
+            sampler_w = torch.randint(0, W-num_neighbors, size=(num_pixels,), device=pred.device)
+
+            patches_selected_pred = pred[i, :, sampler_h, sampler_w]
+            patches_selected_target = target[i, :, sampler_h, sampler_w]
+            relative_dist_pred = torch.zeros_like(patches_selected_pred, device=pred.device)
+            relative_dist_target = torch.zeros_like(patches_selected_target, device=pred.device)
+
+            # Found a Bug Here (iterator of B and neighbor is the same)
+            for j in range(num_neighbors):
+                relative_dist_pred += (patches_selected_pred - pred[i, :, sampler_h, sampler_w+j]).abs()
+                relative_dist_target += (patches_selected_target - pred[i, :, sampler_h, sampler_w+j]).abs()
+
+            loss += (relative_dist_pred - relative_dist_target).abs().mean()
+        return torch.log1p(loss / B)
+
+    def square_relative_loss(self, pred, target, num_pixels = 500, dilation = 0):
+        B, C, H, W = pred.shape
+        loss = 0
+
+        neighborhood = [(1+dilation, 0), (-1-dilation, 0), (0, 1+dilation), (0, -1-dilation),
+                        (1+dilation, 1+dilation), (-1-dilation, -1-dilation), (1+dilation, -1-dilation), (-1-dilation, 1+dilation)]
+
+        for i in range(B):
+        
+            sampler_h = torch.randint(0 + (dilation + 1), H - (dilation + 1), size = (num_pixels,), device=pred.device)
+            sampler_w = torch.randint(0 + (dilation + 1), W - (dilation + 1), size = (num_pixels,), device=pred.device)
+
+            patches_selected_pred = pred[i, :, sampler_h, sampler_w]
+            patches_selected_target = target[i, :, sampler_h, sampler_w]
+            relative_dist_pred = torch.zeros_like(patches_selected_pred, device=pred.device)
+            relative_dist_target = torch.zeros_like(patches_selected_target, device=pred.device)
+
+
+            for nn in neighborhood:
+                relative_dist_pred += (patches_selected_pred - pred[i, :, sampler_h + nn[0], sampler_w + nn[1]]).abs()
+                relative_dist_target += (patches_selected_target - pred[i, :, sampler_h + nn[0], sampler_w + nn[1]]).abs()
+
+            loss += (relative_dist_pred - relative_dist_target).abs().mean()
+        return torch.log1p(loss / B)
+        
+    
+    def forward_loss(self, pred, target, pred_feature_map_backbone):
         
         ## l2
         # loss = (pred - target) ** 2  
         ## l1
-        pixel_loss = (pred - target).abs()
+        loss = (pred - target).abs()
 
         ## inverse huber loss
         # loss = inverse_huber_loss(pred, target)
 
         # Smooth L1 Loss
         # loss = func.smooth_l1_loss(pred, target, reduction='none')
-        pixel_loss = pixel_loss.mean()
+        loss = loss.mean()
 
         if self.log_transform:
-            loss = (torch.log1p(pred) - torch.log1p(target)).abs()
-            loss = loss.mean()
-        elif self.depth_scale_loss:
-            loss = (pred - target).abs() * target
-            loss = loss.mean()
+            pixel_loss = (torch.expm1(pred) - torch.expm1(target)).abs().mean()
         else:
-            loss = pixel_loss.clone()
+            pixel_loss = loss.clone()
 
+        if self.relative_dist_loss:
+            # Give a lambda weight to the additional loss
+            loss += 0.1*self.row_relative_loss(pred, target, num_pixels=50, num_neighbors=8)
+            # loss += 0.1* self.square_relative_loss(pred, target, num_pixels=500, dilation=1)
 
+        if self.perceptual_loss:
+            # TODO: Force low resolution feature map close to gt high resolution feature map
+            target_feature_map = self.pretrain_mae(target)
+            # feature_loss = (pred_feature_map_backbone - target_feature_map)**2
+            # feature_loss = feature_loss.mean()
+            feature_loss = self.perceptual_loss_criterion(pred_feature_map_backbone, target_feature_map)
+            loss += 0.001*feature_loss
+            
         return loss, pixel_loss
 
     def forward(self, x, target, img_size_high_res, eval = False, mc_drop = False):
+
 
         x = self.patch_embed(x) 
         # Have to rearrange to the shape with H * H * C, otherwise the shape won't match in transformer
@@ -797,6 +871,7 @@ class SwinUnet(nn.Module):
             x_save.append(x)
             x = layer(x)
 
+        feature_map_back_bone = x.clone().detach()
             
         x = self.first_patch_expanding(x)
 
@@ -805,12 +880,6 @@ class SwinUnet(nn.Module):
             x = torch.cat([x, x_save[len(x_save) - i - 2]], -1)
             x = self.skip_connection_layers[i](x)
             x = layer(x)
-
-        # # Skip connection with concatenation
-        # for i, layer in enumerate(self.layers_up):
-        #     x = torch.cat([x, x_save[len(x_save) - i - 2]], -1)
-        #     print(x.shape)
-        #     x = layer(x.contiguous())
 
         
         x = self.norm_up(x)
@@ -827,7 +896,6 @@ class SwinUnet(nn.Module):
             else:
                 x = x.view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
             x = self.head(x.contiguous())
-
         else:
             x = self.final_patch_expanding(x)
             # x = grid_reshape_backward(x, img_size_high_res)
@@ -845,12 +913,12 @@ class SwinUnet(nn.Module):
             x = self.head(x.contiguous())
 
         if eval:
-            total_loss, pixel_loss = self.forward_loss(x, target)
+            total_loss, pixel_loss = self.forward_loss(x, target, feature_map_back_bone)
             return x, total_loss, pixel_loss
         elif mc_drop:
             return x
         else:
-            total_loss, pixel_loss = self.forward_loss(x, target)
+            total_loss, pixel_loss = self.forward_loss(x, target, feature_map_back_bone)
             return x, total_loss, pixel_loss
 
 

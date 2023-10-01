@@ -21,7 +21,7 @@ import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from util.datasets import build_durlar_upsampling_dataset, build_carla_upsampling_dataset
+from util.datasets import build_durlar_upsampling_dataset, build_carla_upsampling_dataset, build_kitti_upsampling_dataset
 from util.pos_embed import interpolate_pos_embed
 
 import timm
@@ -33,10 +33,15 @@ from timm.models.layers import trunc_normal_
 import util.misc as misc
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
+# import swin_unet_template as swin_unet
 import swin_unet
+import swinunet_modelanalysis
 from timm.data.dataset import ImageDataset
 from engine_upsampling import train_one_epoch, evaluate, get_latest_checkpoint, MCdrop
+from engine_upsampling_analysis import analyze
 import wandb
+
+import swin_mae_ploss
 
 
 def get_args_parser():
@@ -66,9 +71,12 @@ def get_args_parser():
                         choices=['mae', 'swin_mae', 'swin_unet', 
                                  'swin_unet_v2', 'swin_unet_deep', 'swin_unet_deeper',
                                  'swin_unet_moredepths', 'swin_unet_v2_deep', 'swin_unet_v2_deeper',
-                                 'swin_unet_v2_moredepths'])
+                                 'swin_unet_v2_moredepths', 'swin_unet_with_pretrain'])
 
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
+                        help='Name of model to train')
+    
+    parser.add_argument('--pretrain_mae_model', default='swin_mae_patch2_base_line_ws4', type=str, metavar='MODEL',
                         help='Name of model to train')
 
     parser.add_argument('--input_size', default=224, type=int,
@@ -79,6 +87,10 @@ def get_args_parser():
     
     parser.add_argument('--depth_scale_loss', action='store_true',
                         help='scale up the loss with ground truth depth values')
+    
+    parser.add_argument('--relative_dist_loss', action="store_true", help='relative distance loss')
+
+    parser.add_argument('--perceptual_loss', action="store_true", help='perceptual loss function (locked by pretrained MAE)')
     
     parser.add_argument('--pixel_shuffle', action='store_true',
                         help='pixel shuffle upsampling head')
@@ -128,7 +140,7 @@ def get_args_parser():
                         help='Do not random erase first (clean) augmentation split')
 
     # Dataset parameters
-    parser.add_argument('--dataset_select', default='durlar', type=str, choices=['durlar', 'carla', 'image-net'])
+    parser.add_argument('--dataset_select', default='durlar', type=str, choices=['durlar', 'carla','kitti', 'image-net'])
 
     parser.add_argument('--gray_scale', action="store_true", help='use gray scale imgae')
     parser.add_argument('--img_size_low_res', nargs="+", type=int, help='low resolution image size, given in format h w')
@@ -151,6 +163,7 @@ def get_args_parser():
     parser.add_argument('--keep_far_scan', action="store_true", help='mask out pixel belonging to close object')
 
     parser.add_argument('--roll', action="store_true", help='random roll range map in vertical direction')
+    
     
     
 
@@ -188,8 +201,10 @@ def get_args_parser():
     parser.add_argument('--run_name', type = str, default = None)
 
     parser.add_argument('--eval', action='store_true', help="evaluation")
+    parser.add_argument('--analyze', action='store_true', help="call model analysis")
     parser.add_argument('--mc_drop', action='store_true', help="apply monte carlo dropout at inference time")
     parser.add_argument('--noise_threshold', type = float, default=0.03, help="threshold of monte carlo dropout")
+    parser.add_argument('--grid_size', type = float, default=0.1, help="grid size for voxelization")
     
     
     return parser
@@ -219,6 +234,9 @@ def main(args):
     elif args.dataset_select == 'carla':
         dataset_train = build_carla_upsampling_dataset(is_train = True, args = args)
         dataset_val = build_carla_upsampling_dataset(is_train = False, args = args)
+    elif args.dataset_select == 'kitti':
+        dataset_train = build_kitti_upsampling_dataset(is_train = True, args = args)
+        dataset_val = build_kitti_upsampling_dataset(is_train = False, args = args)
     else:
         raise NotImplementedError("Cannot find the matched dataset builder")
     
@@ -281,21 +299,115 @@ def main(args):
     
     
     # define the model
-    model = swin_unet.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
-                                                  target_img_size = tuple(args.img_size_high_res),
-                                                    patch_size = tuple(args.patch_size), 
-                                                    in_chans = args.in_chans,
-                                                    window_size = args.window_size,
-                                                    edge_loss = args.edge_loss,
-                                                    pixel_shuffle = args.pixel_shuffle,
-                                                    grid_reshape = args.grid_reshape,
-                                                    circular_padding = args.circular_padding,
-                                                    log_transform = args.log_transform,
-                                                    depth_scale_loss = args.depth_scale_loss,
-                                                    pixel_shuffle_expanding = args.pixel_shuffle_expanding,)
+
+    if args.perceptual_loss and not (args.eval or args.analyze):
+        print("Unlocking MAE perceptual loss")
+
+        pretrain_mae_model = swin_mae_ploss.__dict__[args.pretrain_mae_model](
+                                                                            # img_size = tuple(args.img_size_low_res),
+                                                                            img_size = tuple(args.img_size_high_res),
+                                                                            norm_pix_loss=args.norm_pix_loss,
+                                                                            in_chans = args.in_chans,
+                                                                            circular_padding = args.circular_padding,
+                                                                            grid_reshape = args.grid_reshape,
+                                                                            conv_projection = args.pixel_shuffle,
+                                                                            pixel_shuffle_expanding = args.pixel_shuffle_expanding,
+                                                                            log_transform = args.log_transform,)
+
+        pretrain = torch.load(args.pretrain, map_location='cpu')
+
+        print("Load pre-trained MAE checkpoint from: %s" % args.pretrain)
+        pretrain_model = pretrain['model']
+
+        msg = pretrain_mae_model.load_state_dict(pretrain_model, strict=False)
+        print(msg)
+
+        print("Freeze the parameters in pretrained mae model")
+        for name, p in pretrain_mae_model.named_parameters():
+            p.requires_grad = False
+
+        pretrain_mae_model.to(device)
+
+    elif args.perceptual_loss and args.eval:
+        pretrain_mae_model = swin_mae_ploss.__dict__[args.pretrain_mae_model](img_size = tuple(args.img_size_high_res),
+                                                                            norm_pix_loss=args.norm_pix_loss,
+                                                                            in_chans = args.in_chans,
+                                                                            circular_padding = args.circular_padding,
+                                                                            grid_reshape = args.grid_reshape,
+                                                                            conv_projection = args.pixel_shuffle,
+                                                                            pixel_shuffle_expanding = args.pixel_shuffle_expanding,
+                                                                            log_transform = args.log_transform,)
+        pretrain_mae_model.to(device)
+    else:
+        pretrain_mae_model = None
+
+        
+
+
+    if args.analyze:
+        if args.perceptual_loss:
+            pretrain_mae_model = swinunet_modelanalysis.__dict__['swin_mae_analysis_for_pretrain'](img_size = tuple(args.img_size_high_res),
+                                                                            norm_pix_loss=args.norm_pix_loss,
+                                                                            circular_padding = args.circular_padding,
+                                                                            grid_reshape = args.grid_reshape,
+                                                                            conv_projection = args.pixel_shuffle,
+                                                                            pixel_shuffle_expanding = args.pixel_shuffle_expanding,
+                                                                            log_transform = args.log_transform,)
+            
+            if args.pretrain is not None:
+                pretrain = torch.load(args.pretrain, map_location='cpu')
+
+                print("Load pre-trained MAE checkpoint from: %s" % args.pretrain)
+                pretrain_model = pretrain['model']
+
+                msg = pretrain_mae_model.load_state_dict(pretrain_model, strict=False)
+                print(msg)
+
+                print("Freeze the parameters in pretrained mae model")
+                for name, p in pretrain_mae_model.named_parameters():
+                    p.requires_grad = False
+
+                pretrain_mae_model.to(device)
+
+        else:
+            pretrian_mae_model = None
+
+        model = swinunet_modelanalysis.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
+                                                    target_img_size = tuple(args.img_size_high_res),
+                                                        patch_size = tuple(args.patch_size), 
+                                                        in_chans = args.in_chans,
+                                                        window_size = args.window_size,
+                                                        edge_loss = args.edge_loss,
+                                                        pixel_shuffle = args.pixel_shuffle,
+                                                        grid_reshape = args.grid_reshape,
+                                                        circular_padding = args.circular_padding,
+                                                        log_transform = args.log_transform,
+                                                        depth_scale_loss = args.depth_scale_loss,
+                                                        pixel_shuffle_expanding = args.pixel_shuffle_expanding,
+                                                        relative_dist_loss = args.relative_dist_loss,
+                                                        perceptual_loss = args.perceptual_loss,
+                                                        pretrain_mae = pretrain_mae_model,)
+
+
+    else:
+        model = swin_unet.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
+                                                    target_img_size = tuple(args.img_size_high_res),
+                                                        patch_size = tuple(args.patch_size), 
+                                                        in_chans = args.in_chans,
+                                                        window_size = args.window_size,
+                                                        edge_loss = args.edge_loss,
+                                                        pixel_shuffle = args.pixel_shuffle,
+                                                        grid_reshape = args.grid_reshape,
+                                                        circular_padding = args.circular_padding,
+                                                        log_transform = args.log_transform,
+                                                        depth_scale_loss = args.depth_scale_loss,
+                                                        pixel_shuffle_expanding = args.pixel_shuffle_expanding,
+                                                        relative_dist_loss = args.relative_dist_loss,
+                                                        perceptual_loss = args.perceptual_loss,
+                                                        pretrain_mae = pretrain_mae_model,)
         
     # Load pretrained model
-    if args.pretrain is not None:
+    if args.pretrain is not None and not args.perceptual_loss:
         pretrain = torch.load(args.pretrain, map_location='cpu')
 
         print("Load pre-trained checkpoint from: %s" % args.pretrain)
@@ -332,7 +444,11 @@ def main(args):
 
     if args.eval and os.path.exists(args.output_dir):
         print("Loading Checkpoint and directly start the evaluation")
-        get_latest_checkpoint(args)
+        if args.output_dir.endswith("pth"):
+            args.resume = args.output_dir
+            args.output_dir = os.path.dirname(args.output_dir)
+        else:
+            get_latest_checkpoint(args)
         # checkpoint = torch.load(args.resume, map_location='cpu')
         # model.load_state_dict(checkpoint)
         misc.load_model(
@@ -349,6 +465,34 @@ def main(args):
         print("Evaluation finished")
 
 
+        exit(0)
+
+    elif args.analyze and os.path.exists(args.output_dir):
+        print("Loading Checkpoint and directly start the evaluation")
+        get_latest_checkpoint(args)
+
+        if args.pretrain is not None:
+            checkpoint = torch.load(args.resume, map_location='cpu')
+            checkpoint_model = checkpoint['model']
+
+            for k in list(checkpoint_model.keys()):
+                if k.__contains__('pretrain_mae'):
+                    print(f"Removing key {k} from pretrained checkpoint")
+                    del checkpoint_model[k]
+
+
+            model.load_state_dict(checkpoint_model, strict = False)
+        else:
+
+            misc.load_model(
+                    args=args, model_without_ddp=model, optimizer=None,
+                    loss_scaler=None)
+        model.to(device)
+
+        print("Start Model Analysis")
+        analyze(data_loader_val, model, device, log_writer = log_writer, args = args)
+
+        print("Analysis finished")
         exit(0)
         
 
@@ -411,14 +555,15 @@ def main(args):
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
 
-    
-    print("Start Evaluation")
-    if args.mc_drop:
-        print("Apply Monte-Carlo Dropout")
-        MCdrop(data_loader_val, model, device, log_writer = log_writer, args = args)
-    else:
-        evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
-    print("Evaluation finished")
+    print('Training finished')
+
+    # print("Start Evaluation")
+    # if args.mc_drop:
+    #     print("Apply Monte-Carlo Dropout")
+    #     MCdrop(data_loader_val, model, device, log_writer = log_writer, args = args)
+    # else:
+    #     evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
+    # print("Evaluation finished")
 
     if global_rank == 0:
         wandb.finish()
@@ -431,6 +576,6 @@ if __name__ == '__main__':
     # Pre-Check
     if args.use_intensity:
         assert args.in_chans > 1
-    if args.output_dir:
+    if args.output_dir and not args.eval:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)

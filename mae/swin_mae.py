@@ -22,7 +22,8 @@ class SwinMAE(nn.Module):
                  window_size: int = 7, qkv_bias: bool = True, mlp_ratio: float = 4.,
                  drop_path_rate: float = 0.1, drop_rate: float = 0., attn_drop_rate: float = 0.,
                  norm_layer=None, patch_norm: bool = True, circular_padding: bool = False, grid_reshape: bool = False, 
-                 conv_projection: bool = False, swin_v2: bool = False, pixel_shuffle_expanding: bool = False, log_transform: bool = False):
+                 conv_projection: bool = False, swin_v2: bool = False, pixel_shuffle_expanding: bool = False, 
+                 log_transform: bool = False, bottleneck_channel_reduction: bool = False):
 
         super().__init__()
         # self.mask_ratio = mask_ratio
@@ -44,6 +45,9 @@ class SwinMAE(nn.Module):
         self.conv_projection = conv_projection
         self.pixel_shuffle_expanding = pixel_shuffle_expanding
         self.log_transform = log_transform
+        self.bottleneck_channel_reduction = bottleneck_channel_reduction
+        
+
 
         self.patch_embed = PatchEmbedding(img_size=img_size, patch_size=patch_size, in_c=in_chans, embed_dim=embed_dim,
                                           norm_layer=norm_layer if patch_norm else None, circular_padding=circular_padding)
@@ -59,13 +63,22 @@ class SwinMAE(nn.Module):
         self.layers_up = self.build_layers_up()
         self.norm_up = norm_layer(embed_dim)
 
+        if self.bottleneck_channel_reduction:
+            ## To Make sure the channel of latent space of high resolution image in pretraining stage match the low resolution one in the upsampling stage 
+            self.bottleneck_reduction_layer = nn.Linear(decoder_embed_dim * 2, decoder_embed_dim, bias=True)
+            # self.bottleneck_reduction_layer = nn.Conv2d(decoder_embed_dim * 2, decoder_embed_dim, kernel_size = 1, bias = False)
+            final_upscale_factor = int((patch_size[0] * patch_size[1])**0.5) * 2
+        else:
+            final_upscale_factor = int((patch_size[0] * patch_size[1])**0.5)
+
         
         # Pixel Shuffle is conv based projection, maybe we should also match the projection in pretraining stage, I would use a pixel shuffle head for the projection as well
         if conv_projection:
-            self.ps_head= PixelShuffleHead(dim = decoder_embed_dim // 8, upscale_factor= int((patch_size[0] * patch_size[1])**0.5))
-            self.decoder_pred = nn.Conv2d(in_channels = decoder_embed_dim // 8, out_channels = 1, kernel_size = (1, 1), bias=False)
+            self.ps_head= PixelShuffleHead(dim = decoder_embed_dim // 8, upscale_factor= final_upscale_factor)
+            self.decoder_pred = nn.Conv2d(in_channels = decoder_embed_dim // 8, out_channels = in_chans, kernel_size = (1, 1), bias=False)
         else:
             self.decoder_pred = nn.Linear(decoder_embed_dim // 8, patch_size[0] * patch_size[1] * in_chans, bias=True)
+        
         
 
         if swin_v2:
@@ -79,7 +92,7 @@ class SwinMAE(nn.Module):
 
         self.grid_reshape = grid_reshape
         if self.grid_reshape:
-            H_in = img_size[0] // patch_size[0]
+            H_in = img_size[0]  // patch_size[0]
             W_in = img_size[1] // patch_size[1]
             H_out = img_size[0] 
             W_out = img_size[1] 
@@ -290,19 +303,28 @@ class SwinMAE(nn.Module):
 
     def build_layers_up(self):
         layers_up = nn.ModuleList()
-        for i in range(self.num_layers - 1): 
+        if self.num_layers > 4:
+            depths = self.depths[:4]
+            num_heads = self.num_heads[:4]
+            num_layers_up = 4
+        else:
+            depths = self.depths
+            num_heads = self.num_heads
+            num_layers_up = self.num_layers
+
+        for i in range(num_layers_up - 1): 
             layer = BasicBlockUp(
                 index=i,
-                depths=self.depths,
+                depths=depths,
                 embed_dim=self.embed_dim,
-                num_heads=self.num_heads,
+                num_heads=num_heads,
                 drop_path=self.drop_path,
                 window_size=self.window_size,
                 mlp_ratio=self.mlp_ratio,
                 qkv_bias=self.qkv_bias,
                 drop_rate=self.drop_rate,
                 attn_drop_rate=self.attn_drop_rate,
-                patch_expanding=True if i < self.num_layers - 2 else False,
+                patch_expanding=True if i < num_layers_up - 2 else False,
                 norm_layer=self.norm_layer,
                 pixel_shuffle_expanding=self.pixel_shuffle_expanding)
             layers_up.append(layer)
@@ -323,6 +345,10 @@ class SwinMAE(nn.Module):
         
         for layer in self.layers:
             x = layer(x)
+        if self.bottleneck_channel_reduction:
+            # x = rearrange(x, 'B H W C -> B C H W')
+            x = self.bottleneck_reduction_layer(x)
+            # x = rearrange(x, 'B C H W -> B H W C')
 
         return x, mask
 
@@ -344,12 +370,13 @@ class SwinMAE(nn.Module):
             if self.grid_reshape:
                 x = grid_reshape_backward(x, params=self.params_output, order="bchw")
             x = self.decoder_pred(x.contiguous()) # B, 1, H, W
-            x = self.patchify(x) 
+            x = self.patchify(x)
         else:
             if self.grid_reshape:
                 x = grid_reshape_backward(x, params=self.params_output, order="bhwc")
             x = rearrange(x, 'B H W C -> B (H W) C')
-            x = self.decoder_pred(x) # B, H*W/num_patchs, num_patchs
+            x = self.decoder_pred(x) # B, H*W/num_patchs, num_patchs (patchified features)
+        
         return x
 
     def forward_loss(self, imgs, pred, mask, mask_loss = False, loss_on_unmasked = False):
@@ -361,6 +388,8 @@ class SwinMAE(nn.Module):
         
 
         target = self.patchify(imgs)
+
+        # exit(0)
         if self.norm_pix_loss:
             mean = target.mean(dim=-1, keepdim=True)
             var = target.var(dim=-1, keepdim=True)
@@ -369,10 +398,10 @@ class SwinMAE(nn.Module):
         # L2
         # loss = (pred - target) ** 2  
         # L1
-        if self.log_transform:
-            loss = (torch.log1p(pred) - torch.log1p(target)).abs()
-        else:
-            loss = (pred - target).abs()
+        # if self.log_transform:
+        #     loss = (torch.log1p(pred) - torch.log1p(target)).abs()
+        # else:
+        loss = (pred - target).abs()
 
         # Mask the loss with LiDAR return
         if mask_loss:
@@ -395,7 +424,8 @@ class SwinMAE(nn.Module):
         if loss_on_unmasked:
             loss = loss.mean()
         else:
-            loss = (loss * mask).sum() / mask.sum() 
+            loss = (loss * mask).sum() / mask.sum()
+
         return loss
 
     def mask_images(self, imgs, mask):
@@ -433,6 +463,9 @@ class SwinMAE(nn.Module):
         pred = self.forward_decoder(latent)
         loss = self.forward_loss(x, pred, mask, mask_loss, loss_on_unmasked)
 
+        # if self.conv_projection:
+        #     pred_imgs = pred
+        # else:
         pred_imgs = self.unpatchify(pred)# [N, L, p*p*3] --> (N, C, H, W)
 
         return loss, pred_imgs, masked_imgs
@@ -522,15 +555,16 @@ def swin_mae_line2_ws4_dec768d(**kwargs):
         #  **kwargs)
     return model
 
-def swin_mae_moredepths_line2_ws4_dec768d(**kwargs):
+def swin_mae_deepencoder_line2_ws4_dec768d(**kwargs):
     model = SwinMAE(
         patch_size=(1, 4),
         window_size=4,
         decoder_embed_dim=768,
-        depths=(2, 2, 6, 2), embed_dim=96, num_heads=(3, 6, 12, 24),
+        depths=(2, 2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24, 48),
         qkv_bias=True, mlp_ratio=4,
         drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), 
+        bottleneck_channel_reduction=True, **kwargs)
         #  **kwargs)
     return model
 
@@ -597,5 +631,7 @@ swin_mae_v2_patch2_base_line = swin_mae_line2_v2_ws4_dec768d
 swin_mae_patch2_base_line_ws4 = swin_mae_line2_ws4_dec768d
 swin_mae_patch2_base_line_ws8 = swin_mae_line2_ws8_dec768d
 
-swin_mae_moredepths_patch2_base_line_ws4 = swin_mae_moredepths_line2_ws4_dec768d
+# Should be windown size two to match the low resolution latent space
+swin_mae_deepencoder_patch2_base_line_ws4 = swin_mae_deepencoder_line2_ws4_dec768d
+
 

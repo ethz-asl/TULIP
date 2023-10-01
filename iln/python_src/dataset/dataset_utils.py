@@ -22,6 +22,12 @@ def generate_dataset(dataset_config):
     """
     return dataset_list[dataset_config['type']](**dataset_config['args'])
 
+def read_range_kitti(filename):
+    range_intensity_map = np.load(filename)
+    range_map = range_intensity_map[..., 0]
+
+    return range_map.astype(np.float32)
+
 def read_range_durlar(filename, dtype=np.float16, lidar=None):
     """
     Read a range image from a binary file.
@@ -37,6 +43,46 @@ def read_range_durlar(filename, dtype=np.float16, lidar=None):
     # range_image = np.asarray(range_image, dtype = np.float32) / 255
 
     return range_image.astype(np.float32)
+
+
+def downsample_range_durlar(range_image, h_high_res = 128, downsample_factor = 4):
+    low_res_index = range(0, h_high_res, downsample_factor)
+    return range_image[low_res_index, :]
+
+def read_and_downsample_range_image_binary(filename, dtype=np.float16, lidar=None, downsample_factor = 4):
+    """
+    Read a range image from a binary file.
+
+    :param filename: filename of range image
+    :param dtype: encoding type of binary data (default: float16)
+    :param lidar: LiDAR specification for crop the invalid detection distances
+    :return: range image encoded by float32 type
+    """
+    range_image_file = open(filename, 'rb')
+
+    # Read the size of range image
+    size = np.fromfile(range_image_file, dtype=np.uint, count=2)
+
+    # Read the range image
+    range_image = np.fromfile(range_image_file, dtype=dtype)
+    range_image = range_image.reshape(size[1], size[0])
+    range_image = range_image.transpose()
+    range_image = range_image.astype(np.float32)
+
+
+    low_res_index = range(0, size[0], downsample_factor)
+    range_image = range_image[low_res_index, :]
+
+    if lidar is not None:
+        # Crop the values out of the detection range
+        range_image[range_image < 10e-10] = lidar['norm_r']
+        range_image[range_image < lidar['min_r']] = 0.0
+        range_image[range_image > lidar['max_r']] = lidar['norm_r']
+
+    range_image_file.close()
+
+    return range_image.astype(np.float32)
+
 
 
 def read_range_image_binary(filename, dtype=np.float16, lidar=None):
@@ -284,8 +330,9 @@ def denormalization_ranges(range_image, norm_r=120.0):
     :return: denormalized range image of which each value has the range [0 ~ norm_r]
     """
     range_image += 1.0
-    # range_image *= (0.5 * norm_r)
-    range_image *= 0.5
+    # Needed for carla dataset
+    # if norm_r > 1:
+    range_image *= (0.5 * norm_r)
     return range_image
 
 
