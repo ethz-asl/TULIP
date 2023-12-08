@@ -8,8 +8,9 @@ export PYTHONPATH="${PYTHONPATH}:/cluster/work/riner/users/biyang"
 args=(
     -c /cluster/work/riner/users/biyang/config/lsr_kitti_eval.yaml
     -o /cluster/work/riner/users/biyang/experiment/kitti/lsr/
-    -cp /cluster/work/riner/users/biyang/experiment/kitti/lsr/lsr_300.pth
+    -cp /cluster/work/riner/users/biyang/experiment/kitti/lsr/lsr_600.pth
     -b 1
     )
 
 python iln/python_src/evaluate_models_on_kitti_dataset.py "${args[@]}"
+#python iln/python_src/evaluate_diff_ranges_kitti.py "${args[@]}"

@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import matplotlib.cm as cmx
 
+import time 
 cNorm = colors.Normalize(vmin=0, vmax=1)
 jet = plt.get_cmap('viridis_r')
 scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=jet)
@@ -43,10 +44,18 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 128, w_high = 2
     total_iou = 0
     total_cd = 0
 
+    #indices = [481, 496, 860, 869, 894, 1482, 1491, 1783, 2010]
+    indices = None
+
     for packed_batches in tqdm(test_loader, leave=False, desc='test'):
+
+        if indices is not None:
+            if global_step not in indices:
+                global_step += 1
+                continue
         # input_range_image:    [N, 1, H_in, W_in]
         # output_ranges:        [N, H_out*W_out, 1]
-        input_range_image, output_ranges = packed_batches[0].cuda(), packed_batches[2].cuda()
+        input_range_image, output_ranges = packed_batches[0].cuda(), packed_batches[1].cuda()
 
         # Prediction: input_range_image [N, 1, H_in, W_in] --> pred_ranges: [N, H_out*W_out, 1]
         with torch.no_grad():
@@ -107,10 +116,10 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 128, w_high = 2
 
         global_step += 1
 
-        if global_step % 100 == 0 or global_step == 1:
+        if global_step % 100 == 0 or global_step == 1 or indices is not None:
             if save_pcd:
-                if local_step % 4 == 0:
-                    pcd_eval_path = os.path.join(output_path, "pcd")
+                if local_step % 4 == 0 or indices is not None:
+                    pcd_eval_path = os.path.join(output_path, "pcd") if indices is None else os.path.join(output_path, "pcd_vispaper")
                     
                     if not os.path.exists(pcd_eval_path):
                         os.mkdir(pcd_eval_path)
@@ -128,8 +137,8 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 128, w_high = 2
                         vertices=pcd_gt,
                         colors=pcd_gt_color)
                     
-                    point_cloud_pred.export(os.path.join(pcd_eval_path, f"pred_{local_step}.ply"))
-                    point_cloud_gt.export(os.path.join(pcd_eval_path, f"gt_{local_step}.ply"))
+                    point_cloud_pred.export(os.path.join(pcd_eval_path, f"pred_{global_step}.ply"))
+                    point_cloud_gt.export(os.path.join(pcd_eval_path, f"gt_{global_step}.ply"))
 
                 
 
@@ -164,6 +173,7 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 128, w_high = 2
     wandb.log({'Metrics/test_average_iou': total_iou/global_step,
                 'Metrics/test_average_cd': total_cd/global_step,
                 'Metrics/test_average_loss': total_loss/global_step})
+    print(total_iou/global_step, total_cd/global_step, total_loss/global_step)
 
 
 
@@ -175,7 +185,15 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
     total_loss = 0
     total_iou = 0
     total_cd = 0
+
+    #indices = [481, 496, 860, 869, 894, 1482, 1491, 1783, 2010]
+    indices = None
+
     for packed_batches in tqdm(test_loader, leave=False, desc='test'):
+        if indices is not None:
+            if global_step not in indices:
+                global_step += 1
+                continue
         
         # input_range_image:    [N, 1, H_in, W_in]
         # input_queries:        [N, H_out*W_out, 2]
@@ -204,6 +222,7 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
         # pred_ranges[pred_ranges > test_dataset.lidar_out['norm_r']] = test_dataset.lidar_out['norm_r']
         pred_ranges[pred_ranges > test_dataset.lidar_out['norm_r']] = 0
         # Reshape to [H, W]
+
 
         pred_ranges = pred_ranges.reshape(h_high, w_high)
         output_ranges = output_ranges.reshape(h_high, w_high)
@@ -242,10 +261,10 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
 
         global_step += 1
 
-        if global_step % 100 == 0 or global_step == 1:
+        if global_step % 100 == 0 or global_step == 1 or indices is not None:
             if save_pcd:
-                if local_step % 4 == 0:
-                    pcd_eval_path = os.path.join(output_path, "pcd")
+                if local_step % 4 == 0 or indices is not None:
+                    pcd_eval_path = os.path.join(output_path, "pcd") if indices is None else os.path.join(output_path, "pcd_vispaper")
                     
                     if not os.path.exists(pcd_eval_path):
                         os.mkdir(pcd_eval_path)
@@ -263,8 +282,8 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
                         vertices=pcd_gt,
                         colors=pcd_gt_color)
                     
-                    point_cloud_pred.export(os.path.join(pcd_eval_path, f"pred_{local_step}.ply"))
-                    point_cloud_gt.export(os.path.join(pcd_eval_path, f"gt_{local_step}.ply"))
+                    point_cloud_pred.export(os.path.join(pcd_eval_path, f"pred_{global_step}.ply"))
+                    point_cloud_gt.export(os.path.join(pcd_eval_path, f"gt_{global_step}.ply"))
 
                 
 
@@ -299,6 +318,8 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
     wandb.log({'Metrics/test_average_iou': total_iou/global_step,
                 'Metrics/test_average_cd': total_cd/global_step,
                 'Metrics/test_average_loss': total_loss/global_step})
+
+    print(total_iou/global_step, total_cd/global_step, total_loss/global_step)
 
 
 if __name__ == '__main__':

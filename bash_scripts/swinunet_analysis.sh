@@ -16,31 +16,31 @@ args=(
     --weight_decay 0.01
     --warmup_epochs 20
     # Model parameters
-    --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/mr000_128_2048_depthwiseconcat/checkpoint-100.pth
+    # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/mr000_128_2048_depthwiseconcat/checkpoint-300.pth
     --analyze
     --model_select swin_unet
-    --perceptual_loss
-    --pixel_shuffle
-    --circular_padding
-    --grid_reshape
-    --pixel_shuffle_expanding
+    # --perceptual_loss
+    # --pixel_shuffle
+    # --circular_padding
+    # --grid_reshape
+    # --pixel_shuffle_expanding
     # Dataset
-    --dataset_select durlar
-    --log_transform
-    --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_new
-    --data_path_high_res /cluster/work/riner/users/biyang/dataset/depth_intensity_new
+    --dataset_select kitti
+    # --log_transform
+    --data_path_low_res /cluster/work/riner/users/biyang/dataset/KITTI/
+    --data_path_high_res /cluster/work/riner/users/biyang/dataset/KITTI/
     # WandB Parameters
-    --run_name test_perceptual_loss
+    --run_name test_vis_feauremap_window4x4_patchsize2x2
     --entity biyang
-    # --wandb_disabled
+    --wandb_disabled
     --project_name model_analysis
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_4/128_2048_mr000pretrain300deepencoder_l2ploss_lamda0.001/
+    --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling/AblationStudies/non_square_window2x8/
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
-    --img_size_low_res 32 2048
-    --img_size_high_res 128 2048
-    --input_size 128
-    --window_size 4
+    --img_size_low_res 16 1024
+    --img_size_high_res 64 1024
+    # --input_size 128
+    --window_size 2 8
     --patch_size 1 4
     # --patch_size 4 1
     # --window_size 8

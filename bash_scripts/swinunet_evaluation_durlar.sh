@@ -16,21 +16,24 @@ args=(
     --warmup_epochs 20
     # Model parameters
     --eval
+    # --evaluate_with_specific_indices
     --grid_size 0.1
-    --mc_drop
-    --noise_threshold 0.0005
+    # --mc_drop
+    # --noise_threshold 0.0005
+    # --output_multidims
     # --edge_loss
     # --model_select swin_unet_moredepths
     --model_select swin_unet
     # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/GPC_PSE_LogLoss_Swinv1_100epochs_warmup20_mr075/checkpoint-99.pth
     # --pretrain /cluster/work/riner/users/biyang/pretrained_mae/swinv2_small_patch4_window8_256.pth
     # --pretrain_only_encoder
-    # --pretrain_mae_model swin_mae_patch4_base
+    # --pretrain_mae_model swin_reversedecoder_base_line_ws4 
     # --perceptual_loss
     --pixel_shuffle
     --circular_padding
     --grid_reshape
     --pixel_shuffle_expanding
+    # --delta_pixel_loss
     # --relative_dist_loss
     # Dataset
     --dataset_select durlar
@@ -39,20 +42,21 @@ args=(
     # --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
     --data_path_high_res /cluster/work/riner/users/biyang/dataset/depth_intensity_new
     # --keep_close_scan
-    --save_pcd
+    # --save_pcd
     # WandB Parameters
     # --run_name p+c+g+swinv1_deeper+300epcohs+warmup40
-    --run_name Ours-MCDrop:pretrain500_onlyencoder_500epochs
+    --run_name Ours:train_on_carla
     --entity biyang
     # --wandb_disabled
     --project_name durlar_evaluation
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_4/128_2048_32x2048pretrain500_onlyencoder/
+    # --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_4/non_square_window1x16_withall_deepnetwork/
+    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling/128_2048_baseline/
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --input_size 128
-    --window_size 4
+    --window_size 4 4
     --patch_size 1 4
     # --patch_size 4 1
     # --window_size 8

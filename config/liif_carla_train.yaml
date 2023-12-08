@@ -1,6 +1,6 @@
 dataset:
   name: Carla
-  type: range_images
+  type: range_samples_from_image
   args:
     directory: ./dataset/Carla
     scene_ids:
@@ -12,23 +12,23 @@ dataset:
       - Town06
     res_in: '32_2048'
     res_out: '128_2048'
+    num_of_samples: 65536
     memory_fetch: false
 
 model:
-  name: lsr
-  output: /cluster/work/riner/users/biyang/experiment/carla/lsr_20000/
+  name: liif_lidar
+  output: /cluster/work/riner/users/biyang/experiment/carla/liif/
   args:
-    scale_h: 4
-    scale_w: 1
-
-
+    local_ensemble: true
+    feat_unfold: false
+    cell_decode: false
 
 logger:
   wandb_disabled: False
   # evaluation = False
   # save_pcd = False
   # project_name = "lidar_sr_network"
-  project_name: 'iln_carla_20000'
+  project_name: 'sota_carla'
   entity: "biyang"
-  run_name: "lidar_super_resolution_network"
-  group_name: "LSR"
+  run_name: "liif"
+  group_name: "liif"

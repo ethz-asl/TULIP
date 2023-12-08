@@ -178,7 +178,7 @@ if __name__ == '__main__':
     lr_scheduler = MultiStepLR(optimizer, milestones=[200, 400, 600, 800], gamma=0.5)
     criterion = nn.L1Loss()
     epoch_start = 0
-    epoch_end = 1000
+    epoch_end = 400
     # epoch_end = 1
 
     # Load a valid check point

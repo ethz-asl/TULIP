@@ -22,5 +22,12 @@ carla_simulator/
 chamferdist/
 *.ply
 kitti_utils/KITTI_Tutorial/
+/iln/python_src/models/trained/*
+envs_completionformer/
+.cache/
+sota_reproduce/
+*.npy
+mae/util/__pycache__/*
+
 
 

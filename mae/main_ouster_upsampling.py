@@ -21,7 +21,7 @@ import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from util.datasets import build_durlar_upsampling_dataset, build_carla_upsampling_dataset, build_kitti_upsampling_dataset
+from util.datasets import build_durlar_upsampling_dataset, build_carla_upsampling_dataset, build_kitti_upsampling_dataset, build_carla200000_upsampling_dataset
 from util.pos_embed import interpolate_pos_embed
 
 import timm
@@ -39,9 +39,11 @@ import swinunet_modelanalysis
 from timm.data.dataset import ImageDataset
 from engine_upsampling import train_one_epoch, evaluate, get_latest_checkpoint, MCdrop
 from engine_upsampling_analysis import analyze
+from evaluate_different_ranges import evaluate_diff_ranges, MCdrop_diff_ranges
 import wandb
 
 import swin_mae_ploss
+# from torch_ema import ExponentialMovingAverage
 
 
 def get_args_parser():
@@ -57,10 +59,14 @@ def get_args_parser():
     parser.add_argument('--pretrain', default=None, type=str,
                         help='full path of pretrain model')
     parser.add_argument('--pretrain_only_encoder', action='store_true', help="Only load pretrained weights of the encoder")
+    parser.add_argument('--fixed_encoder', action='store_true', help="fixed the weights of the pretrained_encoder")
+    parser.add_argument('--fixed_all', action='store_true', help="fixed the weights of all pretrained weights")
+    
+    parser.add_argument('--pretrain_only_decoder', action='store_true', help="Initialize the encoder with pretrained decoder")
     parser.add_argument('--use_cls_token', action='store_true', help="Use CLS token in embedding")
 
     # Swin MAE parameters
-    parser.add_argument('--window_size', default=7, type=int,
+    parser.add_argument('--window_size', nargs="+", type=int,
                         help='size of window partition')
     parser.add_argument('--remove_mask_token', action="store_true", help="Remove mask token in the encoder")
     parser.add_argument('--patch_size', nargs="+", type=int, help='image size, given in format h w')
@@ -89,8 +95,12 @@ def get_args_parser():
                         help='scale up the loss with ground truth depth values')
     
     parser.add_argument('--relative_dist_loss', action="store_true", help='relative distance loss')
+    parser.add_argument('--delta_pixel_loss', action="store_true", help='delta pixel loss')
 
     parser.add_argument('--perceptual_loss', action="store_true", help='perceptual loss function (locked by pretrained MAE)')
+
+    parser.add_argument('--output_multidims', action="store_true", help='multiple dimensions in the prediction and learned the interpolation weights')
+    parser.add_argument('--shift_only_leftright', action="store_true", help='window is only shifted left right in the swin transformer block')
     
     parser.add_argument('--pixel_shuffle', action='store_true',
                         help='pixel shuffle upsampling head')
@@ -140,7 +150,7 @@ def get_args_parser():
                         help='Do not random erase first (clean) augmentation split')
 
     # Dataset parameters
-    parser.add_argument('--dataset_select', default='durlar', type=str, choices=['durlar', 'carla','kitti', 'image-net'])
+    parser.add_argument('--dataset_select', default='durlar', type=str, choices=['durlar', 'carla','kitti', 'image-net', 'carla200000'])
 
     parser.add_argument('--gray_scale', action="store_true", help='use gray scale imgae')
     parser.add_argument('--img_size_low_res', nargs="+", type=int, help='low resolution image size, given in format h w')
@@ -177,9 +187,12 @@ def get_args_parser():
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
+    
+    parser.add_argument('--use_ema', action='store_true',help='use Expoential Moving Average')
 
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
+    parser.add_argument('--save_frequency', default=100, type=int,help='frequency of saving the checkpoint')
     parser.add_argument('--num_workers', default=10, type=int)
     parser.add_argument('--pin_mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
@@ -201,8 +214,11 @@ def get_args_parser():
     parser.add_argument('--run_name', type = str, default = None)
 
     parser.add_argument('--eval', action='store_true', help="evaluation")
+    parser.add_argument('--evaluate_with_specific_indices', action='store_true', help="evaluation with specific indices")
+    parser.add_argument('--evaluate_with_different_ranges', action='store_true', help="evaluation with histogramized ranges")
     parser.add_argument('--analyze', action='store_true', help="call model analysis")
     parser.add_argument('--mc_drop', action='store_true', help="apply monte carlo dropout at inference time")
+    parser.add_argument('--num_mcdropout_iterations', type = int, default=50, help="number of inference for monte carlo dropout")
     parser.add_argument('--noise_threshold', type = float, default=0.03, help="threshold of monte carlo dropout")
     parser.add_argument('--grid_size', type = float, default=0.1, help="grid size for voxelization")
     
@@ -237,6 +253,9 @@ def main(args):
     elif args.dataset_select == 'kitti':
         dataset_train = build_kitti_upsampling_dataset(is_train = True, args = args)
         dataset_val = build_kitti_upsampling_dataset(is_train = False, args = args)
+    elif args.dataset_select == 'carla200000':
+        dataset_train = build_carla200000_upsampling_dataset(is_train = True, args = args)
+        dataset_val = build_carla200000_upsampling_dataset(is_train = False, args = args)
     else:
         raise NotImplementedError("Cannot find the matched dataset builder")
     
@@ -304,10 +323,10 @@ def main(args):
         print("Unlocking MAE perceptual loss")
 
         pretrain_mae_model = swin_mae_ploss.__dict__[args.pretrain_mae_model](
-                                                                            # img_size = tuple(args.img_size_low_res),
-                                                                            img_size = tuple(args.img_size_high_res),
+                                                                            img_size = tuple(args.img_size_low_res),
+                                                                            # img_size = tuple(args.img_size_high_res),
                                                                             norm_pix_loss=args.norm_pix_loss,
-                                                                            in_chans = args.in_chans,
+                                                                            in_chans = 4,
                                                                             circular_padding = args.circular_padding,
                                                                             grid_reshape = args.grid_reshape,
                                                                             conv_projection = args.pixel_shuffle,
@@ -328,10 +347,12 @@ def main(args):
 
         pretrain_mae_model.to(device)
 
+
     elif args.perceptual_loss and args.eval:
-        pretrain_mae_model = swin_mae_ploss.__dict__[args.pretrain_mae_model](img_size = tuple(args.img_size_high_res),
+        pretrain_mae_model = swin_mae_ploss.__dict__[args.pretrain_mae_model](img_size = tuple(args.img_size_low_res),
+                                                                            # img_size = tuple(args.img_size_high_res),
                                                                             norm_pix_loss=args.norm_pix_loss,
-                                                                            in_chans = args.in_chans,
+                                                                            in_chans = 4,
                                                                             circular_padding = args.circular_padding,
                                                                             grid_reshape = args.grid_reshape,
                                                                             conv_projection = args.pixel_shuffle,
@@ -346,7 +367,7 @@ def main(args):
 
     if args.analyze:
         if args.perceptual_loss:
-            pretrain_mae_model = swinunet_modelanalysis.__dict__['swin_mae_analysis_for_pretrain'](img_size = tuple(args.img_size_high_res),
+            pretrain_mae_model = swinunet_modelanalysis.__dict__['swin_mae_analysis_for_pretrain'](img_size = tuple(args.img_size_low_res),
                                                                             norm_pix_loss=args.norm_pix_loss,
                                                                             circular_padding = args.circular_padding,
                                                                             grid_reshape = args.grid_reshape,
@@ -404,7 +425,10 @@ def main(args):
                                                         pixel_shuffle_expanding = args.pixel_shuffle_expanding,
                                                         relative_dist_loss = args.relative_dist_loss,
                                                         perceptual_loss = args.perceptual_loss,
-                                                        pretrain_mae = pretrain_mae_model,)
+                                                        pretrain_mae = pretrain_mae_model,
+                                                        output_multidims = args.output_multidims,
+                                                        delta_pixel_loss = args.delta_pixel_loss,
+                                                        shift_only_leftright = args.shift_only_leftright,)
         
     # Load pretrained model
     if args.pretrain is not None and not args.perceptual_loss:
@@ -414,31 +438,41 @@ def main(args):
         pretrain_model = pretrain['model']
 
         state_dict = model.state_dict()
-        for k in ['head.weight', 'patch_embed.proj.weight']:
+        for k in ['head.weight', 'patch_embed.proj.weight', 'decoder_pred.weight']:
             if k in pretrain_model and pretrain_model[k].shape != state_dict[k].shape:
                 print(f"Removing key {k} from pretrained checkpoint")
                 del pretrain_model[k]
 
+        if args.fixed_all:
+            for name, p in model.named_parameters():
+                if name in list(pretrain_model.keys()):
+                    p.requires_grad = False
         
         # state_dict = model.state_dict()
 
-        # # if args.pretrain_only_encoder:
-        # print(pretrain_model.keys())
-
         if args.pretrain_only_encoder:
             for k in list(pretrain_model.keys()):
-                if k.__contains__('up'):
+                if k.__contains__('up') or \
+                    k.__contains__('head') or \
+                    k.__contains__('decoder') or \
+                    k.__contains__('skip_connection') or \
+                    k.__contains__('first_patch_expanding') or \
+                    k.__contains__('output_weights'):
                     print(f"Removing key {k} from pretrained checkpoint")
                     del pretrain_model[k]
-            
+
+            if args.fixed_encoder:
+                # Freeze the parameters in pretrain model
+                # Only the decoder is randomly initialized
+                print("Freeze the parameters in pretrained encoder")
+                for name, p in model.named_parameters():
+                    if name in list(pretrain_model.keys()):
+                        p.requires_grad = False
+
         msg = model.load_state_dict(pretrain_model, strict=False)
         print(msg)
 
-        # # Freeze the parameters in pretrain model
-        # for name, p in model.named_parameters():
-        #     if name in list(pretrain_model.keys()):
-        #         p.requires_grad = False
-
+        
     else:
         print("Training from scratch")
 
@@ -457,9 +491,15 @@ def main(args):
         model.to(device)
         
         print("Start Evaluation")
-        if args.mc_drop:
+        if args.mc_drop and not args.evaluate_with_different_ranges:
             print("Apply Monte-Carlo Dropout")
             MCdrop(data_loader_val, model, device, log_writer = log_writer, args = args)
+        elif args.evaluate_with_different_ranges and not args.mc_drop:
+            print("Evaluate with different ranges")
+            evaluate_diff_ranges(data_loader_val, model, device, log_writer = log_writer, args = args)
+        elif args.evaluate_with_different_ranges and args.mc_drop:
+            print("Evaluate with different ranges and apply Monte-Carlo Dropout")
+            MCdrop_diff_ranges(data_loader_val, model, device, log_writer = log_writer, args = args)
         else:
             evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
         print("Evaluation finished")
@@ -522,6 +562,11 @@ def main(args):
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
     loss_scaler = NativeScaler()
+    if args.use_ema:
+        ema_decay = 0.995
+        ema = ExponentialMovingAverage(model_without_ddp.parameters(), decay=ema_decay)
+    else:
+        ema = None
     
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
@@ -535,9 +580,10 @@ def main(args):
             model, data_loader_train,
             optimizer, device, epoch, loss_scaler,
             log_writer=log_writer,
+            ema = ema,
             args=args
         )
-        if args.output_dir and (epoch % 100 == 0 or epoch + 1 == args.epochs):
+        if args.output_dir and (epoch % args.save_frequency == 0 or epoch + 1 == args.epochs):
             misc.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch)

@@ -1,0 +1,27 @@
+dataset:
+  name: Durlar
+  type: range_samples_from_durlar
+  args:
+    directory: /cluster/work/riner/users/biyang/iln/samples/
+    high_res_path: /cluster/work/riner/users/biyang/dataset/depth_intensity_new/train/depth/all/
+    low_res_path: /cluster/work/riner/users/biyang/dataset/depth_intensity_new/train/depth/all/
+    # res_in: '16_1024'
+    # res_out: '128_2048'
+    num_of_samples: 65536
+
+model:
+  name: liif_lidar
+  output: /cluster/work/riner/users/biyang/experiment/durlar/liif/
+  args:
+    local_ensemble: true
+    feat_unfold: false
+    cell_decode: false
+
+logger:
+  wandb_disabled: False
+  # evaluation = False
+  # save_pcd = False
+  project_name: 'sota_durlar'
+  entity: "biyang"
+  run_name: "liif"
+  group_name: "liif"

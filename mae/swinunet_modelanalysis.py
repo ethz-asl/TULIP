@@ -34,9 +34,8 @@ class SwinMaeAnalysis(SwinMAEPerceptualLoss):
         
 
         encoder_feature_map = []
-        x = self.depth_wise_concate(x)
+        # x = self.depth_wise_concate(x)
 
-        print(x.shape)
         x = self.patch_embed(x)
 
 
@@ -49,8 +48,6 @@ class SwinMaeAnalysis(SwinMAEPerceptualLoss):
 
         if self.bottleneck_channel_reduction:
             x = self.bottleneck_reduction_layer(x)
-
-        print(x.shape)
 
         return x, encoder_feature_map
     
@@ -171,9 +168,11 @@ class SwinUnetAnalysis(SwinUnet):
         feature_map_upsample = []
 
         x = self.patch_embed(x) 
+        if self.window_size[0] == self.window_size[1]:
+            x = x.contiguous().view((x.shape[0], int((x.shape[1] * x.shape[2])**0.5), int((x.shape[1] * x.shape[2])**0.5), x.shape[3]))
         # Have to rearrange to the shape with H * H * C, otherwise the shape won't match in transformer
         # (B, H, W, C)
-        x = grid_reshape(x, self.params_input)
+        # x = grid_reshape(x, self.params_input)
         x = self.pos_drop(x) 
         x_save = []
 
@@ -181,58 +180,79 @@ class SwinUnetAnalysis(SwinUnet):
         for i, layer in enumerate(self.layers):
             x_save.append(x)
             x = layer(x)
-            feature_map_downsample.append(x)
+
+        # print(layer.)
 
         feature_map_backbone = x.clone()
-        if self.perceptual_loss:
-            target_feature_backbone, pretrain_downsample_features = self.pretrain_mae(target)
+        # if self.perceptual_loss:
+        #     target_feature_backbone, pretrain_downsample_features = self.pretrain_mae(target)
             
         x = self.first_patch_expanding(x)
 
-        feature_map_upsample.append(x)
 
         for i, layer in enumerate(self.layers_up):                
             x = torch.cat([x, x_save[len(x_save) - i - 2]], -1)
             x = self.skip_connection_layers[i](x)
             
             x = layer(x)
-            feature_map_upsample.append(x)
 
         x = self.norm_up(x)
 
-        x = rearrange(x, 'B H W C -> B C H W')
-        x = self.pixel_shuffle_layer(x.contiguous())
+        # x = rearrange(x, 'B H W C -> B C H W')
+        if self.pixel_shuffle:
+            x = rearrange(x, 'B H W C -> B C H W')
+            x = self.ps_head(x.contiguous())
+            # Grid Reshape
+            # (B, C, H, W)
+            feature_map_upsample.append(rearrange(x, 'B C H W -> B H W C'))
+            if self.window_size[0] == self.window_size[1]:
+                x = x.view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
+            # Reshape
+            x = self.decoder_pred(x.contiguous())
+        else:
+            x = self.final_patch_expanding(x)
+            # x = grid_reshape_backward(x, img_size_high_res)
+            x = rearrange(x, 'B H W C -> B C H W')
+            
+            # Please consider reshape the image here again, as in transformer we always have the input with shape of B, H, H, C
+            # for example, if 32*2048 range map as input
+            # 32*2048 -> 16*1024 -> 128 * 128 -> 512*512 -> 128*2048
+            # Grid Reshape  
+            feature_map_upsample.append(rearrange(x, 'B C H W -> B H W C'))
+            if self.window_size[0] == self.window_size[1]:
+                x = x.view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
 
-        feature_map_upsample.append(rearrange(x, 'B C H W -> B H W C'))
+            
+            x = self.decoder_pred(x.contiguous())
+
+        # feature_map_upsample.append(rearrange(x, 'B C H W -> B H W C'))
     
 
-        x = grid_reshape_backward(x, self.params_output, order="bchw")
+        # x = grid_reshape_backward(x, self.params_output, order="bchw")
 
 
         
         
-        x = self.head(x.contiguous())
+        # x = self.head(x.contiguous())
 
         # feature_map_upsample.append(rearrange(x, 'B C H W -> B H W C'))
 
 
         # losses = self.test_different_loss(x, target)
-        cosine_similarity_map = self.cosine_similarity(feature_map_backbone, target_feature_backbone)
+        # cosine_similarity_map = self.cosine_similarity(feature_map_backbone, target_feature_backbone)
 
-        if self.perceptual_loss:
-            return {'pred': x,
+        # if self.perceptual_loss:
+        #     return {'pred': x,
+        #             'features_downsample': feature_map_downsample, 
+        #             'features_upsample': feature_map_upsample,
+        #             'cosine_similarity_map': cosine_similarity_map.unsqueeze(-1),
+        #             'feature_backbone': feature_map_backbone,
+        #             'target_feature_backbone': target_feature_backbone,
+        #             'pretrain_downsample_features': pretrain_downsample_features}
+
+        return {'pred': x,
                     'features_downsample': feature_map_downsample, 
                     'features_upsample': feature_map_upsample,
-                    'cosine_similarity_map': cosine_similarity_map.unsqueeze(-1),
-                    'feature_backbone': feature_map_backbone,
-                    'target_feature_backbone': target_feature_backbone,
-                    'pretrain_downsample_features': pretrain_downsample_features}
-
-        else:
-            return {'pred': x,
-                    'features_downsample': feature_map_downsample, 
-                    'features_upsample': feature_map_upsample,
-                    'cosine_similarity_map': cosine_similarity_map.unsqueeze(-1),
                     'feature_backbone': feature_map_backbone,}
 
         

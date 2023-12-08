@@ -7,7 +7,7 @@ export PYTHONPATH="${PYTHONPATH}:/cluster/work/riner/users/biyang"
 
 args=(
     -c /cluster/work/riner/users/biyang/config/lsr_kitti_train.yaml
-    -b 16
+    -b 32
     )
 
 python /cluster/work/riner/users/biyang/iln/python_src/train_models.py "${args[@]}"

@@ -43,10 +43,18 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 10
     total_iou = 0
     total_cd = 0
 
+
+    indices = [188, 2054,496, 926 , 979,1120,1875, 666, 999, 888, 520, 1314, 2000, 688, 1, 10, 100, 777, 1111, 2222, 369, 796, 1000]
+
     for packed_batches in tqdm(test_loader, leave=False, desc='test'):
+
+        if indices is not None:
+            if global_step not in indices:
+                global_step += 1
+                continue
         # input_range_image:    [N, 1, H_in, W_in]
         # output_ranges:        [N, H_out*W_out, 1]
-        input_range_image, output_ranges = packed_batches[0].cuda(), packed_batches[2].cuda()
+        input_range_image, output_ranges = packed_batches[0].cuda(), packed_batches[1].cuda()
 
         # Prediction: input_range_image [N, 1, H_in, W_in] --> pred_ranges: [N, H_out*W_out, 1]
         with torch.no_grad():
@@ -67,7 +75,11 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 10
         # MAE
         pred_ranges[pred_ranges < 0.] = 0.
         # pred_ranges[pred_ranges > test_dataset.lidar_out['norm_r']] = test_dataset.lidar_out['norm_r']
-        pred_ranges[pred_ranges > test_dataset.lidar_out['norm_r']] = 0
+        pred_ranges[pred_ranges > test_dataset.lidar_out['max_r']] = 0
+        output_ranges[output_ranges > test_dataset.lidar_out['max_r']] = 0
+
+        pred_ranges = pred_ranges / test_dataset.lidar_out['norm_r']
+        output_ranges = output_ranges / test_dataset.lidar_out['norm_r']
         # Reshape to [H, W]
 
         pred_ranges = pred_ranges.reshape(h_high, w_high)
@@ -84,8 +96,8 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 10
 
         mse_all = (np.absolute(pred - gt)).mean()
 
-        pcd_pred = img_to_pcd_kitti(pred, maximum_range=120)
-        pcd_gt = img_to_pcd_kitti(gt, maximum_range=120)
+        pcd_pred = img_to_pcd_kitti(pred, maximum_range=test_dataset.lidar_out['norm_r'])
+        pcd_gt = img_to_pcd_kitti(gt, maximum_range=test_dataset.lidar_out['norm_r'])
 
 
         pcd_all = np.vstack((pcd_pred, pcd_gt))
@@ -107,10 +119,10 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 10
 
         global_step += 1
 
-        if global_step % 100 == 0 or global_step == 1:
+        if global_step % 100 == 0 or global_step == 1 or indices is not None:
             if save_pcd:
-                if local_step % 4 == 0:
-                    pcd_eval_path = os.path.join(output_path, "pcd")
+                if local_step % 4 == 0 or indices is not None:
+                    pcd_eval_path = os.path.join(output_path, "pcd") if indices is None else os.path.join("/cluster/home/biyang/", "pcd_vispaper")
                     
                     if not os.path.exists(pcd_eval_path):
                         os.mkdir(pcd_eval_path)
@@ -128,8 +140,8 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 10
                         vertices=pcd_gt,
                         colors=pcd_gt_color)
                     
-                    point_cloud_pred.export(os.path.join(pcd_eval_path, f"pred_{local_step}.ply"))
-                    point_cloud_gt.export(os.path.join(pcd_eval_path, f"gt_{local_step}.ply"))
+                    point_cloud_pred.export(os.path.join(pcd_eval_path, f"pred_{global_step}.ply"))
+                    point_cloud_gt.export(os.path.join(pcd_eval_path, f"gt_{global_step}.ply"))
 
                 
 
@@ -175,7 +187,15 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024,
     total_loss = 0
     total_iou = 0
     total_cd = 0
+
+    indices = [188, 2054,496, 926 , 979,1120,1875, 666, 999, 888, 520, 1314, 2000, 688, 1, 10, 100, 777, 1111, 2222, 369, 796, 1000]
+    # indices = None
     for packed_batches in tqdm(test_loader, leave=False, desc='test'):
+
+        if indices is not None:
+            if global_step not in indices:
+                global_step += 1
+                continue    
         
         # input_range_image:    [N, 1, H_in, W_in]
         # input_queries:        [N, H_out*W_out, 2]
@@ -201,8 +221,12 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024,
         output_ranges = denormalization_ranges(output_ranges, norm_r =  test_dataset.lidar_out['norm_r'])   # [N * H_out * W_out]
         pred_ranges = denormalization_ranges(pred_ranges, norm_r =  test_dataset.lidar_out['norm_r'])       # [N * H_out * W_out]
         pred_ranges[pred_ranges < 0.] = 0.
-        # pred_ranges[pred_ranges > test_dataset.lidar_out['norm_r']] = test_dataset.lidar_out['norm_r']
-        pred_ranges[pred_ranges > test_dataset.lidar_out['norm_r']] = 0
+
+        pred_ranges[pred_ranges > test_dataset.lidar_out['max_r']] = 0
+        output_ranges[output_ranges > test_dataset.lidar_out['max_r']] = 0
+
+        pred_ranges = pred_ranges / test_dataset.lidar_out['norm_r']
+        output_ranges = output_ranges / test_dataset.lidar_out['norm_r']
         # Reshape to [H, W]
 
         pred_ranges = pred_ranges.reshape(h_high, w_high)
@@ -212,6 +236,9 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024,
         gt = output_ranges.detach().cpu().numpy()
 
         low_res_index = range(0, h_high, 4)
+
+
+        
 
         # Evaluate the loss of low resolution part
         loss_low_res_part = np.abs((pred[low_res_index, :] - gt[low_res_index, :]))
@@ -242,10 +269,10 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024,
 
         global_step += 1
 
-        if global_step % 100 == 0 or global_step == 1:
+        if global_step % 100 == 0 or global_step == 1 or indices is not None:
             if save_pcd:
-                if local_step % 4 == 0:
-                    pcd_eval_path = os.path.join(output_path, "pcd")
+                if local_step % 4 == 0 or indices is not None:
+                    pcd_eval_path = os.path.join(output_path, "pcd") if indices is None else os.path.join("/cluster/home/biyang/", "pcd_vispaper")
                     
                     if not os.path.exists(pcd_eval_path):
                         os.mkdir(pcd_eval_path)
@@ -263,8 +290,8 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024,
                         vertices=pcd_gt,
                         colors=pcd_gt_color)
                     
-                    point_cloud_pred.export(os.path.join(pcd_eval_path, f"pred_{local_step}.ply"))
-                    point_cloud_gt.export(os.path.join(pcd_eval_path, f"gt_{local_step}.ply"))
+                    point_cloud_pred.export(os.path.join(pcd_eval_path, f"pred_{global_step}.ply"))
+                    point_cloud_gt.export(os.path.join(pcd_eval_path, f"gt_{global_step}.ply"))
 
                 
 

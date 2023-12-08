@@ -21,7 +21,8 @@ import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from util.datasets import build_dataset, build_durlar_pretraining_dataset, build_depth_intensity_dataset, build_carla_pretraining_dataset
+from util.datasets import build_dataset, build_durlar_pretraining_dataset, build_depth_intensity_dataset, \
+    build_carla_pretraining_dataset, build_kitti_pretraining_dataset, build_carla200000_pretraining_dataset
 from util.pos_embed import interpolate_pos_embed
 
 import timm
@@ -35,8 +36,9 @@ from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
 import models_mae
 import swin_mae
+import swin_autoencoder
 from timm.data.dataset import ImageDataset
-from engine_pretrain import train_one_epoch, evaluate, get_latest_checkpoint
+from engine_pretrain import train_one_epoch, evaluate, get_latest_checkpoint, MCdrop
 import wandb
 
 
@@ -63,7 +65,7 @@ def get_args_parser():
 
     # Model parameters
     parser.add_argument('--model_select', default='mae', type=str,
-                        choices=['mae', 'swin_mae'])
+                        choices=['mae', 'swin_mae', 'swin_autoencoder'])
     
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
                         help='Name of model to train')
@@ -130,7 +132,7 @@ def get_args_parser():
                         help='Do not random erase first (clean) augmentation split')
 
     # Dataset parameters
-    parser.add_argument('--dataset_select', default='durlar', type=str, choices=['durlar', 'carla', 'image-net'])
+    parser.add_argument('--dataset_select', default='durlar', type=str, choices=['durlar', 'carla', 'image-net', 'kitti', 'carla200000'])
 
     parser.add_argument('--gray_scale', action="store_true", help='use gray scale imgae')
     parser.add_argument('--imagenet', action="store_true", help='use imagenet for test')
@@ -157,6 +159,7 @@ def get_args_parser():
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
+    parser.add_argument('--save_frequency', default=100, type=int,help='frequency of saving the checkpoint')
 
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
@@ -181,6 +184,8 @@ def get_args_parser():
     parser.add_argument('--run_name', type = str, default = None)
 
     parser.add_argument('--eval', action='store_true', help="evaluation")
+    parser.add_argument('--mc_drop', action='store_true', help="apply monte carlo dropout at inference time")
+    parser.add_argument('--noise_threshold', type = float, default=0.03, help="threshold of monte carlo dropout")
     
     
     return parser
@@ -224,6 +229,13 @@ def main(args):
             elif args.dataset_select == 'carla':
                 dataset_train = build_carla_pretraining_dataset(is_train=True, args=args)
                 dataset_val = build_carla_pretraining_dataset(is_train=False, args=args)
+            elif args.dataset_select == 'kitti':
+                dataset_train = build_kitti_pretraining_dataset(is_train=True, args=args)
+                dataset_val = build_kitti_pretraining_dataset(is_train=False, args=args)
+            
+            elif args.dataset_select == 'carla200000':
+                dataset_train = build_carla200000_pretraining_dataset(is_train=True, args=args)
+                dataset_val = build_carla200000_pretraining_dataset(is_train=False, args=args)
 
             else:
                 raise NotImplementedError("Cannot find the matched dataset builder")
@@ -301,6 +313,16 @@ def main(args):
                                                      pixel_shuffle_expanding = args.pixel_shuffle_expanding,
                                                      log_transform = args.log_transform,)
         
+    elif args.model_select == "swin_autoencoder":
+        model = swin_autoencoder.__dict__[args.model](img_size = tuple(args.img_size),
+                                                     norm_pix_loss=args.norm_pix_loss,
+                                                     in_chans = args.in_chans,
+                                                     circular_padding = args.circular_padding,
+                                                     grid_reshape = args.grid_reshape,
+                                                     conv_projection = args.conv_projection,
+                                                     pixel_shuffle_expanding = args.pixel_shuffle_expanding,
+                                                     log_transform = args.log_transform,)
+        
     # Load pretrained model
     if args.pretrain is not None:
         pretrain = torch.load(args.pretrain, map_location='cpu')
@@ -327,7 +349,11 @@ def main(args):
         model.to(device)
 
         print("Start Evaluation")
-        evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
+        if args.mc_drop:
+            print("Apply Monte-Carlo Dropout")
+            MCdrop(data_loader_val, model, device, log_writer = log_writer, args = args)
+        else:
+            evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
         print("Evaluation finished")
 
         exit(0)
@@ -373,7 +399,7 @@ def main(args):
             log_writer=log_writer,
             args=args
         )
-        if args.output_dir and (epoch % 100 == 0 or epoch + 1 == args.epochs):
+        if args.output_dir and (epoch % args.save_frequency == 0 or epoch + 1 == args.epochs):
             misc.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch)

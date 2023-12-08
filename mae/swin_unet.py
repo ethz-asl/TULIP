@@ -12,6 +12,8 @@ from util.evaluation import inverse_huber_loss
 from swin_transformer_v2 import SwinTransformerBlockV2, PatchMergingV2
 from util.datasets import grid_reshape, grid_reshape_backward
 
+import collections.abc
+
 class DropPath(nn.Module):
     def __init__(self, drop_prob: float = 0.):
         super().__init__()
@@ -113,11 +115,29 @@ class PatchMerging(nn.Module):
         x = self.norm(x)
         x = self.reduction(x)
         return x
+    
+class PixelUnshuffleMerging(nn.Module):
+    def __init__(self, dim: int, norm_layer=nn.LayerNorm):
+        super(PixelUnshuffleMerging, self).__init__()
+        self.dim = dim
+        self.expand = nn.ConvTranspose2d(in_channels=dim*2, out_channels=dim, kernel_size=(1, 1), bias=False)
+        self.upsample = nn.PixelUnshuffle(downscale_factor=2)
+
+    def forward(self, x: torch.Tensor):
+        x = rearrange(x, 'B H W C -> B C H W')
+        # Frist Merging, then reduction
+        x = self.upsample(x)
+        x = self.expand(x.contiguous())
+        # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=1, P2=4)
+        x = rearrange(x, 'B C H W -> B H W C')
+        return x
+
 
 class PixelShuffleExpanding(nn.Module):
     def __init__(self, dim: int, norm_layer=nn.LayerNorm):
         super(PixelShuffleExpanding, self).__init__()
         self.dim = dim
+        #ToDo: Use linear with norm layer?
         self.expand = nn.Conv2d(in_channels=dim, out_channels=dim*2, kernel_size=(1, 1))
         self.upsample = nn.PixelShuffle(upscale_factor=2)
 
@@ -139,6 +159,7 @@ class PatchExpanding(nn.Module):
         # self.patch_size = patch_size
 
     def forward(self, x: torch.Tensor):
+        
         x = self.expand(x)
         # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=1, P2=4)
         x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=2, P2=2)
@@ -157,6 +178,7 @@ class FinalPatchExpanding(nn.Module):
         # self.expand = nn.Linear(dim, 64 * dim, bias=False)
         self.expand = nn.Linear(dim, (upscale_factor**2) * dim, bias=False)
         self.norm = norm_layer(dim)
+        self.upscale_factor = upscale_factor
 
     def forward(self, x: torch.Tensor):
         x = self.expand(x)
@@ -166,14 +188,34 @@ class FinalPatchExpanding(nn.Module):
     
         # Have to change for loading pretrain weights of ImageNet (input is 256x256, we have 128x128 after patch embedding)
         
-        x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=4,
-                                                                P2=4,
+        x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=self.upscale_factor,
+                                                                P2=self.upscale_factor,
                                                                 C = self.dim)
         # x = rearrange(x, 'B H W (P1 P2 C) -> B (H P1) (W P2) C', P1=2,
         #                                                         P2=2,
         #                                                         C = self.dim)
         
         x = self.norm(x)
+        return x
+
+# Reverse Version of the pixel shuffle head
+class PixelUnshuffleHead(nn.Module):
+    def __init__(self, dim: int, upscale_factor: int):
+        super(PixelUnshuffleHead, self).__init__()
+        self.dim = dim
+
+        self.conv_expand = nn.Sequential(nn.ConvTranspose2d(in_channels=dim*(upscale_factor**2), out_channels= dim, kernel_size=(1, 1), bias = False),
+                                         nn.LeakyReLU(inplace=True))
+
+
+        # self.conv_expand = nn.Conv2d(in_channels=dim, out_channels=dim*(upscale_factor**2), kernel_size=(1, 1))
+        self.upsample = nn.PixelUnshuffle(downscale_factor=upscale_factor)
+        
+
+    def forward(self, x: torch.Tensor):
+        x = self.upsample(x)
+        x = self.conv_expand(x)
+     
         return x
     
 class PixelShuffleHead(nn.Module):
@@ -241,30 +283,40 @@ class Mlp(nn.Module):
 
 class WindowAttention(nn.Module):
     def __init__(self, dim: int, window_size: int, num_heads: int, qkv_bias: Optional[bool] = True,
-                 attn_drop: Optional[float] = 0., proj_drop: Optional[float] = 0., shift: bool = False):
+                 attn_drop: Optional[float] = 0., proj_drop: Optional[float] = 0., shift: bool = False,):
         super().__init__()
-        self.window_size = window_size
+        self.window_size = (window_size if isinstance(window_size, collections.abc.Iterable) else (window_size, window_size))
         self.num_heads = num_heads
         self.scale = (dim // num_heads) ** -0.5
+        self.shift = shift
+
+
+        self.num_windows = window_size[0] * window_size[1]
+
+        # In case vertical direction is not enough to make windows
+        self.backup_window_size = (1, self.num_windows)
+        self.backup_shift_size = (0, self.num_windows // 2)
 
         if shift:
-            self.shift_size = window_size // 2
+            self.shift_size = (window_size[0]//2, window_size[1]//2) 
         else:
             self.shift_size = 0
 
         self.relative_position_bias_table = nn.Parameter(
-            torch.zeros((2 * window_size - 1) ** 2, num_heads))
+            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))
         nn.init.trunc_normal_(self.relative_position_bias_table, std=.02)
 
-        coords_size = torch.arange(self.window_size)
-        coords = torch.stack(torch.meshgrid([coords_size, coords_size], indexing="ij"))
+        coords_size_h = torch.arange(self.window_size[0])
+        coords_size_w = torch.arange(self.window_size[1])
+
+        coords = torch.stack(torch.meshgrid([coords_size_h, coords_size_w], indexing="ij"))
         coords_flatten = torch.flatten(coords, 1)
 
         relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]
         relative_coords = relative_coords.permute(1, 2, 0).contiguous()
-        relative_coords[:, :, 0] += self.window_size - 1
-        relative_coords[:, :, 1] += self.window_size - 1
-        relative_coords[:, :, 0] *= 2 * self.window_size - 1
+        relative_coords[:, :, 0] += self.window_size[0] - 1
+        relative_coords[:, :, 1] += self.window_size[1] - 1
+        relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
         relative_position_index = relative_coords.sum(-1)
         self.register_buffer("relative_position_index", relative_position_index)
 
@@ -277,21 +329,22 @@ class WindowAttention(nn.Module):
     def window_partition(self, x: torch.Tensor) -> torch.Tensor:
         _, H, W, _ = x.shape
 
-        x = rearrange(x, 'B (Nh Mh) (Nw Mw) C -> (B Nh Nw) Mh Mw C', Nh=H // self.window_size, Nw=W // self.window_size)
+        x = rearrange(x, 'B (Nh Mh) (Nw Mw) C -> (B Nh Nw) Mh Mw C', Nh=H // self.window_size[0], Nw=W // self.window_size[1])
         return x
 
     def create_mask(self, x: torch.Tensor) -> torch.Tensor:
         _, H, W, _ = x.shape
 
-        assert H % self.window_size == 0 and W % self.window_size == 0, "H or W is not divisible by window_size"
+        assert H % self.window_size[0] == 0 and W % self.window_size[1] == 0, "H or W is not divisible by window_size"
 
         img_mask = torch.zeros((1, H, W, 1), device=x.device)
-        h_slices = (slice(0, -self.window_size),
-                    slice(-self.window_size, -self.shift_size),
-                    slice(-self.shift_size, None))
-        w_slices = (slice(0, -self.window_size),
-                    slice(-self.window_size, -self.shift_size),
-                    slice(-self.shift_size, None))
+
+        h_slices = (slice(0, -self.window_size[0]),
+                    slice(-self.window_size[0], -self.shift_size[0]),
+                    slice(-self.shift_size[0], None))
+        w_slices = (slice(0, -self.window_size[1]),
+                    slice(-self.window_size[1], -self.shift_size[1]),
+                    slice(-self.shift_size[1], None))
         cnt = 0
         for h in h_slices:
             for w in w_slices:
@@ -299,7 +352,9 @@ class WindowAttention(nn.Module):
                 cnt += 1
 
         mask_windows = self.window_partition(img_mask)
-        mask_windows = mask_windows.view(-1, self.window_size * self.window_size)
+
+        mask_windows = mask_windows.contiguous().view(-1, self.window_size[0] * self.window_size[1])
+
         attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
 
         attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
@@ -307,9 +362,79 @@ class WindowAttention(nn.Module):
 
     def forward(self, x):
         _, H, W, _ = x.shape
+        if H < self.window_size[0]:
+            self.window_size = self.backup_window_size
+            if self.shift:
+                self.shift_size = self.backup_shift_size
+
+        if self.shift:
+            x = torch.roll(x, shifts=(-self.shift_size[0], -self.shift_size[1]), dims=(1, 2))
+            mask = self.create_mask(x)
+        else:
+            mask = None
+        
+        x = self.window_partition(x)
+        Bn, Mh, Mw, _ = x.shape
+        x = rearrange(x, 'Bn Mh Mw C -> Bn (Mh Mw) C')
+        qkv = rearrange(self.qkv(x), 'Bn L (T Nh P) -> T Bn Nh L P', T=3, Nh=self.num_heads)
+        q, k, v = qkv.unbind(0)
+        q = q * self.scale
+        attn = (q @ k.transpose(-2, -1))
+        # relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
+        #     self.window_size ** 2, self.window_size ** 2, -1)
+        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
+            self.num_windows , self.num_windows , -1)
+        
+        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()
+        attn = attn + relative_position_bias.unsqueeze(0)
+
+        if mask is not None:
+            nW = mask.shape[0]
+            attn = attn.view(Bn // nW, nW, self.num_heads, Mh * Mw, Mh * Mw) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(-1, self.num_heads, Mh * Mw, Mh * Mw)
+        attn = self.softmax(attn)
+        attn = self.attn_drop(attn)
+        x = attn @ v
+        x = rearrange(x, 'Bn Nh (Mh Mw) C -> Bn Mh Mw (Nh C)', Mh=Mh)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        x = rearrange(x, '(B Nh Nw) Mh Mw C -> B (Nh Mh) (Nw Mw) C', Nh=H // Mh, Nw=W // Mw)
+
+        if self.shift_size != 0:
+            x = torch.roll(x, shifts=(self.shift_size[0], self.shift_size[1]), dims=(1, 2))
+        return x
+
+class WindowAttentionShiftOnlyLeftRight(WindowAttention):
+    def __init__(self, dim: int, window_size: int, num_heads: int, qkv_bias: Optional[bool] = True,
+                 attn_drop: Optional[float] = 0., proj_drop: Optional[float] = 0., shift: bool = False,):
+        super().__init__(dim, window_size, num_heads, qkv_bias, attn_drop, proj_drop, shift,)
+
+    def create_mask(self, x: torch.Tensor) -> torch.Tensor:
+        _, H, W, _ = x.shape
+
+        assert H % self.window_size == 0 and W % self.window_size == 0, "H or W is not divisible by window_size"
+
+        img_mask = torch.zeros((1, H, W, 1), device=x.device)
+
+        w_slices = (slice(0, -self.window_size),
+            slice(-self.window_size, -self.shift_size),
+            slice(-self.shift_size, None))
+        cnt = 0
+        for w in w_slices:
+            img_mask[:, :, w, :] = cnt
+            cnt += 1
+
+        mask_windows = self.window_partition(img_mask)
+        mask_windows = mask_windows.view(-1, self.window_size * self.window_size)
+        attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
+
+        attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
+        return attn_mask
+    def forward(self, x):
+        _, H, W, _ = x.shape
 
         if self.shift_size > 0:
-            x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            x = torch.roll(x, shifts=(-self.shift_size,), dims=(2,))
             mask = self.create_mask(x)
         else:
             mask = None
@@ -339,17 +464,20 @@ class WindowAttention(nn.Module):
         x = rearrange(x, '(B Nh Nw) Mh Mw C -> B (Nh Mh) (Nw Mw) C', Nh=H // Mh, Nw=H // Mw)
 
         if self.shift_size > 0:
-            x = torch.roll(x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+            x = torch.roll(x, shifts=(self.shift_size,), dims=(2,))
         return x
-
+        
 
 class SwinTransformerBlock(nn.Module):
-    def __init__(self, dim, num_heads, window_size=7, shift=False, mlp_ratio=4., qkv_bias=True,
+    def __init__(self, dim, num_heads, window_size=7, shift=False, shift_only_leftright=False, mlp_ratio=4., qkv_bias=True,
                  drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(dim, window_size=window_size, num_heads=num_heads, qkv_bias=qkv_bias,
-                                    attn_drop=attn_drop, proj_drop=drop, shift=shift)
+                                    attn_drop=attn_drop, proj_drop=drop, shift=shift)#\
+                    # if not shift_only_leftright else\
+                    # WindowAttentionShiftOnlyLeftRight(dim, window_size=window_size, num_heads=num_heads, qkv_bias=qkv_bias,
+                    #                 attn_drop=attn_drop, proj_drop=drop, shift=shift)                
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -420,7 +548,7 @@ class BasicBlock(nn.Module):
     def __init__(self, index: int, embed_dim: int = 96, window_size: int = 7, depths: tuple = (2, 2, 6, 2),
                  num_heads: tuple = (3, 6, 12, 24), mlp_ratio: float = 4., qkv_bias: bool = True,
                  drop_rate: float = 0., attn_drop_rate: float = 0., drop_path: float = 0.1,
-                 norm_layer=nn.LayerNorm, patch_merging: bool = True):
+                 norm_layer=nn.LayerNorm, patch_merging: bool = True, shift_only_leftright: bool = False):
         super(BasicBlock, self).__init__()
         depth = depths[index]
         dim = embed_dim * 2 ** index
@@ -435,6 +563,7 @@ class BasicBlock(nn.Module):
                 num_heads=num_head,
                 window_size=window_size,
                 shift=False if (i % 2 == 0) else True,
+                shift_only_leftright=False if (i % 2 == 0) else shift_only_leftright,
                 mlp_ratio=mlp_ratio,
                 qkv_bias=qkv_bias,
                 drop=drop_rate,
@@ -462,7 +591,7 @@ class BasicBlockUp(nn.Module):
     def __init__(self, index: int, embed_dim: int = 96, window_size: int = 7, depths: tuple = (2, 2, 6, 2),
                  num_heads: tuple = (3, 6, 12, 24), mlp_ratio: float = 4., qkv_bias: bool = True,
                  drop_rate: float = 0., attn_drop_rate: float = 0., drop_path: float = 0.1,
-                 patch_expanding: bool = True, norm_layer=nn.LayerNorm, pixel_shuffle_expanding: bool = False):
+                 patch_expanding: bool = True, norm_layer=nn.LayerNorm, pixel_shuffle_expanding: bool = False, shift_only_leftright: bool = False):
         super(BasicBlockUp, self).__init__()
         index = len(depths) - index - 2
         depth = depths[index]
@@ -478,6 +607,7 @@ class BasicBlockUp(nn.Module):
                 num_heads=num_head,
                 window_size=window_size,
                 shift=False if (i % 2 == 0) else True,
+                shift_only_leftright=False if (i % 2 == 0) else shift_only_leftright,
                 mlp_ratio=mlp_ratio,
                 qkv_bias=qkv_bias,
                 drop=drop_rate,
@@ -560,7 +690,8 @@ class SwinUnet(nn.Module):
                  mlp_ratio: float = 4., qkv_bias: bool = True, drop_rate: float = 0., attn_drop_rate: float = 0.,
                  drop_path_rate: float = 0.1, norm_layer=nn.LayerNorm, patch_norm: bool = True, edge_loss: bool = False, pixel_shuffle: bool = False,
                  grid_reshape: bool = False, circular_padding: bool = False, swin_v2: bool = False, log_transform: bool = False, depth_scale_loss: bool = False,
-                 pixel_shuffle_expanding: bool = False, relative_dist_loss: bool = False, perceptual_loss: bool = False, pretrain_mae: nn.Module = None):
+                 pixel_shuffle_expanding: bool = False, relative_dist_loss: bool = False, perceptual_loss: bool = False, pretrain_mae: nn.Module = None,
+                 output_multidims: bool = False, delta_pixel_loss: bool = False, shift_only_leftright: bool = False):
         super().__init__()
 
         self.window_size = window_size
@@ -578,6 +709,12 @@ class SwinUnet(nn.Module):
         self.target_img_size = target_img_size
         self.relative_dist_loss = relative_dist_loss
         self.perceptual_loss = perceptual_loss
+        self.delta_pixel_loss = delta_pixel_loss
+        self.shift_only_leftright = shift_only_leftright
+
+        if self.delta_pixel_loss:
+            self.downsample_factor = target_img_size[0] // img_size[0]
+            self.low_res_indices = [range(i, target_img_size[0]+i, self.downsample_factor) for i in range(self.downsample_factor)]
 
         if self.perceptual_loss:
             assert pretrain_mae is not None, "Pretrain MAE model is not provided"
@@ -585,15 +722,10 @@ class SwinUnet(nn.Module):
             # Target is already logtransfromed
             # self.perceptual_loss_criterion = nn.KLDivLoss(reduction='batchmean', log_target=False)
             # self.perceptual_loss_criterion = nn.CosineSimilarity(reduction='batchmean')
-            self.perceptual_loss_criterion = nn.MSELoss()
+            # self.perceptual_loss_criterion = nn.MSELoss()
             # downsampling_factor = target_img_size[0] // img_size[0]
             # self.low_res_index = range(0, target_img_size[0], downsampling_factor)
 
-
-
-        self.patch_embed = PatchEmbedding(
-            img_size = img_size, patch_size=patch_size, in_c=in_chans, embed_dim=embed_dim,
-            norm_layer=norm_layer if patch_norm else None, circular_padding=circular_padding)
 
         
         # TODO: This method not really working, because it compresses the channels of input embedding, which can potentially lead to information loss
@@ -619,8 +751,25 @@ class SwinUnet(nn.Module):
 
         self.skip_connection_layers = self.skip_connection()
         self.norm_up = norm_layer(embed_dim)
-        self.head = nn.Conv2d(in_channels=embed_dim, out_channels=num_output_channel, kernel_size=(1, 1), bias=False)
+        self.output_multidims = output_multidims
+
+        if self.output_multidims:
+            self.num_output_channel = 4
+            self.initialize_weights_for_output_concatenation(output_dim=self.num_output_channel)
+            self.patch_embed = PatchEmbedding(img_size = img_size, patch_size=patch_size, in_c=self.num_output_channel, embed_dim=embed_dim,
+                                                norm_layer=norm_layer if patch_norm else None, circular_padding=circular_padding)
+            self.decoder_pred = nn.Conv2d(in_channels=embed_dim, out_channels=self.num_output_channel, kernel_size=(1, 1), bias=False)
+        else:
+            self.patch_embed = PatchEmbedding(img_size = img_size, patch_size=patch_size, in_c=in_chans, embed_dim=embed_dim,
+                                                norm_layer=norm_layer if patch_norm else None, circular_padding=circular_padding)
+
+            self.decoder_pred = nn.Conv2d(in_channels=embed_dim, out_channels=in_chans, kernel_size=(1, 1), bias=False)
+        
+        
+
         self.apply(self.init_weights)
+
+
 
         # egde detector and loss
         # Loss functions
@@ -631,11 +780,11 @@ class SwinUnet(nn.Module):
 
 
         self.pixel_shuffle = pixel_shuffle
-        self.upscale_factor = int(((target_img_size[0]*target_img_size[1]) / (img_size[0]*img_size[1]))**0.5) * 2 
+        self.upscale_factor = int(((target_img_size[0]*target_img_size[1]) / (img_size[0]*img_size[1]))**0.5) * 2 * int(((patch_size[0]*patch_size[1])//4)**0.5)
         
         if self.pixel_shuffle:
             # Pixel Wise Embedding : upscale_factor = 2, else 4
-            self.pixel_shuffle_layer = PixelShuffleHead(dim = embed_dim, upscale_factor=self.upscale_factor)
+            self.ps_head = PixelShuffleHead(dim = embed_dim, upscale_factor=self.upscale_factor)
             # self.pixel_shuffle_layer = HybridPixelShuffleHead(dim = embed_dim, downscale_factor=window_size, upscale_factor=4)
         else:
             self.final_patch_expanding = FinalPatchExpanding(dim=embed_dim, norm_layer=norm_layer, upscale_factor=self.upscale_factor)
@@ -676,6 +825,28 @@ class SwinUnet(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+
+    def initialize_weights_for_output_concatenation(self, output_dim: int = 4):
+        # We initialize with weighted probability, as other 3 channels input are pseudo-input with added noise
+        self.output_weights = nn.Parameter(torch.Tensor([0.7, 0.1, 0.1, 0.1]).reshape(1, output_dim, 1, 1), requires_grad=True)
+        # self.output_weights = nn.Parameter(torch.ones((1, output_dim, 1, 1)) * (1/output_dim), requires_grad=True)
+
+    def create_multidims_input(self, x, is_train = False):
+        
+        x = torch.tile(x, (1, self.num_output_channel, 1, 1))
+
+        # if is_train:
+        noise = torch.randn_like(x) * 0.05
+        # add random noise to the input
+        x[:, 1:, :, :] = x[:, 1:, :, :] + noise[:, 1:, :, :]
+
+        return x
+
+    def weighted_summation(self, x):
+        assert self.output_weights is not None
+        x = x*self.output_weights
+        x = x.sum(1, keepdim=True)
+        return x
 
     def build_layers_v2(self):
         layers = nn.ModuleList()
@@ -738,7 +909,8 @@ class SwinUnet(nn.Module):
                 drop_rate=self.drop_rate,
                 attn_drop_rate=self.attn_drop_rate,
                 norm_layer=self.norm_layer,
-                patch_merging=False if i == self.num_layers - 1 else True)
+                patch_merging=False if i == self.num_layers - 1 else True,
+                shift_only_leftright=self.shift_only_leftright)
             layers.append(layer)
         return layers
 
@@ -758,7 +930,8 @@ class SwinUnet(nn.Module):
                 attn_drop_rate=self.attn_drop_rate,
                 patch_expanding=True if i < self.num_layers - 2 else False,
                 norm_layer=self.norm_layer,
-                pixel_shuffle_expanding=self.pixel_shuffle_expanding)
+                pixel_shuffle_expanding=self.pixel_shuffle_expanding,
+                shift_only_leftright=self.shift_only_leftright)
             layers_up.append(layer)
         return layers_up
 
@@ -818,9 +991,23 @@ class SwinUnet(nn.Module):
 
             loss += (relative_dist_pred - relative_dist_target).abs().mean()
         return torch.log1p(loss / B)
-        
     
-    def forward_loss(self, pred, target, pred_feature_map_backbone):
+    def compute_delta_pixel(self, input, pred, target):
+        delta_pixel = 0
+        for i in range(self.downsample_factor - 1):
+            delta_ = (input - pred[:, :, self.low_res_indices[i+1], :]) - (input - target[:, :, self.low_res_indices[i+1], :])
+            delta_pixel += delta_.abs().mean()
+
+        return delta_pixel
+
+    # def depth_wise_concate(self, x):
+    #     downsample_factor = 4
+    #     h_high_res = x.shape[2]
+    #     low_res_indices = [range(i, h_high_res+i, downsample_factor) for i in range(downsample_factor)]
+    #     x = torch.cat([x[:, :, low_res_indices[i], :] for i in range(len(low_res_indices))], dim = 1)
+    #     return x
+    
+    def forward_loss(self, pred, target, input):
         
         ## l2
         # loss = (pred - target) ** 2  
@@ -839,6 +1026,12 @@ class SwinUnet(nn.Module):
         else:
             pixel_loss = loss.clone()
 
+
+        if self.delta_pixel_loss:
+            
+            dp_loss = 0.2*self.compute_delta_pixel(input, pred, target)
+            loss += dp_loss
+
         if self.relative_dist_loss:
             # Give a lambda weight to the additional loss
             loss += 0.1*self.row_relative_loss(pred, target, num_pixels=50, num_neighbors=8)
@@ -846,15 +1039,20 @@ class SwinUnet(nn.Module):
 
         if self.perceptual_loss:
             # TODO: Force low resolution feature map close to gt high resolution feature map
-            target_feature_map = self.pretrain_mae(target)
+            feature_loss = self.pretrain_mae(pred, target)
             # feature_loss = (pred_feature_map_backbone - target_feature_map)**2
             # feature_loss = feature_loss.mean()
-            feature_loss = self.perceptual_loss_criterion(pred_feature_map_backbone, target_feature_map)
-            loss += 0.001*feature_loss
-            
+            loss += 0.1*feature_loss
+
         return loss, pixel_loss
 
     def forward(self, x, target, img_size_high_res, eval = False, mc_drop = False):
+
+
+        input = x.clone().detach()
+
+        if self.output_multidims:
+            x = self.create_multidims_input(x, is_train = not (eval or mc_drop))
 
 
         x = self.patch_embed(x) 
@@ -863,15 +1061,16 @@ class SwinUnet(nn.Module):
         if self.grid_reshape:
              # Grid Reshape
             x = grid_reshape(x, self.params_input)
-        else:
-            x = x.contiguous().view((x.shape[0], int((x.shape[1] * x.shape[2])**0.5), int((x.shape[1] * x.shape[2])**0.5), x.shape[3]))
+        # elif self.window_size[0] == self.window_size[1]:
+        #     x = x.contiguous().view((x.shape[0], int((x.shape[1] * x.shape[2])**0.5), int((x.shape[1] * x.shape[2])**0.5), x.shape[3]))
         x = self.pos_drop(x) 
         x_save = []
         for i, layer in enumerate(self.layers):
             x_save.append(x)
             x = layer(x)
 
-        feature_map_back_bone = x.clone().detach()
+
+        # feature_map_back_bone = x.clone().detach()
             
         x = self.first_patch_expanding(x)
 
@@ -887,15 +1086,13 @@ class SwinUnet(nn.Module):
 
         if self.pixel_shuffle:
             x = rearrange(x, 'B H W C -> B C H W')
-            x = self.pixel_shuffle_layer(x.contiguous())
+            x = self.ps_head(x.contiguous())
             # Grid Reshape
             # (B, C, H, W)
             if self.grid_reshape:
                 x = grid_reshape_backward(x, self.params_output, order="bchw")
             # Reshape
-            else:
-                x = x.view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
-            x = self.head(x.contiguous())
+            x = self.decoder_pred(x.contiguous())
         else:
             x = self.final_patch_expanding(x)
             # x = grid_reshape_backward(x, img_size_high_res)
@@ -906,19 +1103,19 @@ class SwinUnet(nn.Module):
             # 32*2048 -> 16*1024 -> 128 * 128 -> 512*512 -> 128*2048
             if self.grid_reshape:
                 x = grid_reshape_backward(x, self.params_output, order="bchw")
-            # Reshape
-            else: 
-                x = x.view((x.shape[0], x.shape[1], img_size_high_res[0], img_size_high_res[1]))
             # Grid Reshape  
-            x = self.head(x.contiguous())
+            x = self.decoder_pred(x.contiguous())
+
+        if self.output_multidims:
+            x = self.weighted_summation(x)
 
         if eval:
-            total_loss, pixel_loss = self.forward_loss(x, target, feature_map_back_bone)
+            total_loss, pixel_loss = self.forward_loss(x, target, input)
             return x, total_loss, pixel_loss
         elif mc_drop:
             return x
         else:
-            total_loss, pixel_loss = self.forward_loss(x, target, feature_map_back_bone)
+            total_loss, pixel_loss = self.forward_loss(x, target, input)
             return x, total_loss, pixel_loss
 
 
@@ -959,7 +1156,7 @@ def swin_unet_deep(**kwargs):
 def swin_unet_deeper(**kwargs):
     model = SwinUnet(
         # patch_size=(4, 4),
-        depths=(2, 2, 2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24, 48, 96),
+        depths=(2, 2, 2, 6, 2), embed_dim=96, num_heads=(3, 6, 12, 24, 48),
         qkv_bias=True, mlp_ratio=4,
         drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)

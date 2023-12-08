@@ -18,16 +18,18 @@ args=(
     # --feature_weight 0.01
     # Model parameters
     --model_select swin_unet
-    # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/mr000_128_2048_linepatch1x4_deepencoder/checkpoint-300.pth
+    # --output_multidims
+    # --pretrain /cluster/work/riner/users/biyang/experiment/kitti/Lowres/autoencoder_depthwiseconcat_weightedsum_noskipcon/checkpoint-499.pth
     # --pretrain_mae_model swin_mae_deepencoder_patch2_base_line_ws4
     # --perceptual_loss
     # --pretrain_only_encoder
-    --pixel_shuffle # improve
-    --circular_padding # improve
-    --grid_reshape # improve
+    # --shift_only_leftright
+    # --pixel_shuffle # improve
+    # --circular_padding # improve
+    # --grid_reshape # improve
     --log_transform # improve
     # --depth_scale_loss # not improve
-    --pixel_shuffle_expanding # improve
+    # --pixel_shuffle_expanding # improve
     # --relative_dist_loss # not improve
     # --roll
     # Dataset
@@ -37,17 +39,17 @@ args=(
     # --keep_close_scan
     # --save_pcd
     # WandB Parameters
-    --run_name KITTI_64_1024:baseline_nopretrain
+    --run_name KITTI_16x1024_64x1024:non_square_window2x32
     --entity biyang
     # --wandb_disabled
     --project_name experiment_kitti
-    --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling/Baseline_nopretrain
+    --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling/AblationStudies/non_square_window2x32
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 16 1024
     --img_size_high_res 64 1024
-    --input_size 64
-    --window_size 4
+    # --input_size 64
+    --window_size 2 32
     --patch_size 1 4
     # --patch_size 4 1
     # --window_size 8
@@ -56,5 +58,5 @@ args=(
     )
 
 # python mae/main_ouster.py "${args[@]}"   
-#python -m torch.distributed.launch --nproc_per_node=2 mae/main_ouster.py "${args[@]}"
+# python -m torch.distributed.launch --nproc_per_node=2 mae/main_ouster_upsampling.py "${args[@]}"
 torchrun --nproc_per_node=4 mae/main_ouster_upsampling.py "${args[@]}"

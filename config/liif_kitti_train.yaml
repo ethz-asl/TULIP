@@ -1,0 +1,26 @@
+dataset:
+  name: Kitti
+  type: range_samples_from_kitti
+  args:
+    directory: /cluster/work/riner/users/biyang/iln/samples/
+    high_res_path: /cluster/work/riner/users/biyang/dataset/KITTI/train20000
+    low_res_path: /cluster/work/riner/users/biyang/dataset/KITTI/train20000
+    num_of_samples: 16384
+
+model:
+  name: liif_lidar
+  output: /cluster/work/riner/users/biyang/experiment/kitti/liif/
+  args:
+    local_ensemble: true
+    feat_unfold: false
+    cell_decode: false
+
+
+logger:
+  wandb_disabled: False
+  # evaluation = False
+  # save_pcd = False
+  project_name: 'sota_kitti'
+  entity: "biyang"
+  run_name: "liif"
+  group_name: "liif"

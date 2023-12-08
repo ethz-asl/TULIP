@@ -49,6 +49,10 @@ def downsample_range_durlar(range_image, h_high_res = 128, downsample_factor = 4
     low_res_index = range(0, h_high_res, downsample_factor)
     return range_image[low_res_index, :]
 
+def downsample_range_durlar_width(range_image, w_high_res = 2048, downsample_factor = 1):
+    low_res_index = range(0, w_high_res, downsample_factor)
+    return range_image[:, low_res_index]
+
 def read_and_downsample_range_image_binary(filename, dtype=np.float16, lidar=None, downsample_factor = 4):
     """
     Read a range image from a binary file.

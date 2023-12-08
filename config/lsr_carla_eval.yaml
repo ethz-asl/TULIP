@@ -10,20 +10,20 @@ dataset:
       - Town04
       - Town05
       - Town06
-    res_in: '32_2048'
+    res_in: '16_1024'
     res_out: '128_2048'
     memory_fetch: false
 
 model:
   name: lsr
-  output: /cluster/work/riner/users/biyang/experiment/carla/lsr_20000/
+  output: /cluster/work/riner/users/biyang/experiment/x16_upsampling/lsr/
   args:
-    scale_h: 4
-    scale_w: 1
+    scale_h: 8
+    scale_w: 2
 
 logger:
   wandb_disabled: False
   project_name: "carla_evaluation"
   entity: "biyang"
-  run_name: "lsr_400epochs"
+  run_name: "lsr_16x1024_128x2048"
   save_pcd: True

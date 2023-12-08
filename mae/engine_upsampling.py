@@ -34,6 +34,8 @@ import trimesh
 import time
 import tqdm
 
+import json
+
 cNorm = colors.Normalize(vmin=0, vmax=1)
 jet = plt.get_cmap('viridis_r')
 scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=jet)
@@ -53,6 +55,7 @@ def train_one_epoch(model: torch.nn.Module,
                     optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, loss_scaler,
                     log_writer=None,
+                    ema = None,
                     args=None):
     model.train(True)
     metric_logger = misc.MetricLogger(delimiter="  ")
@@ -96,6 +99,10 @@ def train_one_epoch(model: torch.nn.Module,
         total_loss /= accum_iter
         loss_scaler(total_loss, optimizer, parameters=model.parameters(),
                     update_grad=(data_iter_step + 1) % accum_iter == 0)
+        
+        if ema is not None:
+            ema.update()
+
         if (data_iter_step + 1) % accum_iter == 0:
             optimizer.zero_grad()
 
@@ -145,22 +152,53 @@ def evaluate(data_loader, model, device, log_writer, args=None):
     total_loss = 0
     total_iou = 0
     total_cd = 0
+    total_f1 = 0
+    total_precision = 0
+    total_recall = 0
     local_step = 0
     dataset_size = len(data_loader)
+
+    evaluation_metrics = {'mae':[],
+                          'chamfer_dist':[],
+                          'iou':[],
+                          'precision':[],
+                          'recall':[],
+                          'f1':[]}
+
+    if args.evaluate_with_specific_indices:
+        if args.dataset_select == "durlar":
+            indices = [481, 496, 860, 869, 894, 1482, 1491, 1783, 2010, 1844 ,1875, 2440, 520,  702,  926,  666, 888, 1046, 1120, 999, 1640, 1689, 1705,]
+
+        elif args.dataset_select == "carla":
+            indices = [57  , 68 ,  79 , 101 , 113 , 124  ,215 , 315, 354, 387,388,456 ,542,564 ,815,816  ,870 ,883, 1018 ,1030 ,1057 , 1085 ,1159 ,1172 , 1371, 1500]
+
+        elif args.dataset_select == "kitti":
+            indices = [ 564, 1028 ,1218 ,1724]
+            #indices = [188, 2054,496, 926 , 979,1120,1875, 666, 999, 888, 520, 1314, 2000, 688, 1, 10, 100, 777, 1111, 2222, 369, 796, 1000]
+            
+    else:
+        indices = None
 
     # iterator = iter(data_loader)
 
     for batch in tqdm.tqdm(data_loader):
+        if indices is not None:
+            if global_step not in indices:
+                global_step += 1
+                continue
 
         # start_time = time.time()
 
         images_low_res = batch[0][0] # (B=1, C, H, W)
         images_high_res = batch[1][0] # (B=1, C, H, W)
 
+        
+        
         # target = batch[-1]
         images_low_res = images_low_res.to(device, non_blocking=True)
         images_high_res = images_high_res.to(device, non_blocking=True)
         # target = target.to(device, non_blocking=True)
+        
         global_step += 1
         # compute output
         with torch.cuda.amp.autocast():
@@ -168,6 +206,7 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                                     images_high_res, 
                                     img_size_high_res = args.img_size_high_res,
                                     eval = True) # --> tuple(loss, pred_imgs, masked_imgs)
+            
         # loss = criterion(pred_img, images_high_res)
 
             
@@ -183,10 +222,12 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                 images_low_res = torch.expm1(images_low_res)
 
             
-            if args.dataset_select == "carla":
+            if args.dataset_select in ["carla", "carla200000"]:
                 pred_img = torch.where((pred_img >= 2/80) & (pred_img <= 1), pred_img, 0)
             elif args.dataset_select == "durlar":
                 pred_img = torch.where((pred_img >= 0.3/120) & (pred_img <= 1), pred_img, 0)
+            elif args.dataset_select == "kitti":
+                pred_img = torch.where((pred_img >= 0) & (pred_img <= 1), pred_img, 0)
             else:
                 print("Not Preprocess the pred image")
             
@@ -202,7 +243,7 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             pred_img = pred_img.detach().cpu().numpy()
             images_low_res = images_low_res.detach().cpu().numpy()
 
-            if args.dataset_select == "carla":
+            if args.dataset_select in ["carla", "carla200000"]:
 
                 if tuple(args.img_size_low_res)[1] != tuple(args.img_size_high_res)[1]:
                     loss_low_res_part = 0
@@ -223,8 +264,22 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 
                 pcd_pred = img_to_pcd_carla(pred_img, maximum_range = 80)
                 pcd_gt = img_to_pcd_carla(images_high_res, maximum_range = 80)
+            
+            elif args.dataset_select == "kitti":
+                low_res_index = range(0, h_high_res, downsampling_factor)
 
-            else:
+                # Evaluate the loss of low resolution part
+                pred_low_res_part = pred_img[low_res_index, :]
+                loss_low_res_part = np.abs(pred_low_res_part - images_low_res)
+                loss_low_res_part = loss_low_res_part.mean()
+
+                pred_img[low_res_index, :] = images_low_res
+                # 3D Evaluation Metrics
+                pcd_pred = img_to_pcd_kitti(pred_img, maximum_range= 120)
+                pcd_gt = img_to_pcd_kitti(images_high_res, maximum_range = 120)
+
+
+            elif args.dataset_select == "durlar":
                 # Keep the pixel values in low resolution image
                 low_res_index = range(0, h_high_res, downsampling_factor)
 
@@ -242,6 +297,8 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                 # 3D Evaluation Metrics
                 pcd_pred = img_to_pcd(pred_img, maximum_range= 120)
                 pcd_gt = img_to_pcd(images_high_res, maximum_range = 120)
+            else:
+                raise NotImplementedError(f"Cannot find the dataset: {args.dataset_select}")
 
             # time_proj = time.time() - start_time
             # print("Time for projection: ", time_proj)
@@ -268,12 +325,20 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 
             # Calculate metrics
             iou, precision, recall = calculate_metrics(voxel_grid_predicted, voxel_grid_ground_truth)
+            f1 = 2 * (precision * recall) / (precision + recall)
+
+            evaluation_metrics['mae'].append(pixel_loss_one_input.item())
+            evaluation_metrics['chamfer_dist'].append(chamfer_dist.item())
+            evaluation_metrics['iou'].append(iou)
+            evaluation_metrics['precision'].append(precision)
+            evaluation_metrics['recall'].append(recall)
+            evaluation_metrics['f1'].append(f1)
 
             # time_metrics = time.time() - time_voxelize
             # print("Time for metrics", time_metrics)
 
 
-            if global_step % 100 == 0 or global_step == 1:
+            if global_step % 100 == 0 or global_step == 1 or indices is not None:
                 loss_map_normalized = (loss_map - loss_map.min()) / (loss_map.max() - loss_map.min() + 1e-8)
 
                 loss_map_normalized = loss_map_normalized.permute(0, 2, 3, 1).squeeze()
@@ -299,8 +364,9 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 
                 if args.save_pcd:
                 
-                    if local_step % 4 == 0:
-                        pcd_outputpath = os.path.join(args.output_dir, 'pcd')
+                    if local_step % 4 == 0 or indices is not None:
+                        pcd_outputpath = os.path.join(args.output_dir, 'pcd') if indices is None else \
+                                            os.path.join(args.output_dir, 'pcd_vis_paper')
                         if not os.path.exists(pcd_outputpath):
                             os.mkdir(pcd_outputpath)
                         pcd_pred_color = np.zeros_like(pcd_pred)
@@ -318,8 +384,8 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                             vertices=pcd_gt,
                             colors=pcd_gt_color)
                         
-                        point_cloud_pred.export(os.path.join(pcd_outputpath, f"pred_{local_step}.ply"))  
-                        point_cloud_gt.export(os.path.join(pcd_outputpath, f"gt_{local_step}.ply")) 
+                        point_cloud_pred.export(os.path.join(pcd_outputpath, f"pred_{global_step}.ply"))  
+                        point_cloud_gt.export(os.path.join(pcd_outputpath, f"gt_{global_step}.ply")) 
 
                 local_step += 1
 
@@ -327,11 +393,26 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             total_iou += iou
             total_cd += chamfer_dist
             total_loss += pixel_loss_one_input.item()
+            total_f1 += f1
+            total_precision += precision
+            total_recall += recall
+
+
+        
+
+            
 
             
 
             # print("Time for one iteration", time.time() - start_time)
-               
+            # 
+    if not args.evaluate_with_specific_indices:
+        evaluation_file_path = os.path.join(args.output_dir,'results.txt')
+        with open(evaluation_file_path, 'w') as file:
+            json.dump(evaluation_metrics, file)
+
+        print(print(f'Dictionary saved to {evaluation_file_path}'))
+
         
     # results = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     avg_loss = total_loss / global_step
@@ -339,6 +420,11 @@ def evaluate(data_loader, model, device, log_writer, args=None):
         log_writer.add_scalar('Metrics/test_average_iou', total_iou/global_step, 0)
         log_writer.add_scalar('Metrics/test_average_cd', total_cd/global_step, 0)
         log_writer.add_scalar('Metrics/test_average_loss', avg_loss, 0)
+        log_writer.add_scalar('Metrics/test_average_f1', total_f1/global_step, 0)
+        log_writer.add_scalar('Metrics/test_average_precision', total_precision/global_step, 0)
+        log_writer.add_scalar('Metrics/test_average_recall', total_recall/global_step, 0)
+
+
 
 
 # TODO: MC Drop
@@ -346,7 +432,7 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 def MCdrop(data_loader, model, device, log_writer, args=None):
     # This criterion is also for classfiction, we can directly use the loss forward computation in mae model
     # criterion = torch.nn.CrossEntropyLoss()
-    iteration = 50
+    iteration = args.num_mcdropout_iterations
     iteration_batch = 8
     noise_threshold = args.noise_threshold
 
@@ -368,9 +454,35 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
     local_step = 0
     total_iou = 0
     total_cd = 0
+    total_f1 = 0
+    total_precision = 0
+    total_recall = 0
     # iterator = iter(data_loader)
 
+    if args.evaluate_with_specific_indices:
+        if args.dataset_select == "durlar":
+            indices = [481, 496, 860, 869, 894, 1482, 1491, 1783, 2010]
+
+        if args.dataset_select == "kitti":
+            indices = [ 564, 1028 ,1218 ,1724]
+            #indices = [188, 2054,496, 926 , 979,1120,1875, 666, 999, 888, 520, 1314, 2000, 688, 1, 10, 100, 777, 1111, 2222, 369, 796, 1000]
+    else:
+        indices = None
+
+    evaluation_metrics = {'mae':[],
+                          'chamfer_dist':[],
+                          'iou':[],
+                          'precision':[],
+                          'recall':[],
+                          'f1':[]}
+
     for batch in tqdm.tqdm(data_loader):
+
+        if indices is not None:
+            if global_step not in indices:
+                global_step += 1
+                continue
+
         images_low_res = batch[0][0] # (B=1, C, H, W)
         images_high_res = batch[1][0] # (B=1, C, H, W)
 
@@ -413,17 +525,18 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             
 
              # Preprocess the image
-            if args.dataset_select == "carla":
+            if args.dataset_select in ["carla", "carla200000"]:
                 pred_img = torch.where((pred_img >= 2/80) & (pred_img <= 1), pred_img, 0)
             elif args.dataset_select == "durlar":
                 pred_img = torch.where((pred_img >= 0.3/120) & (pred_img <= 1), pred_img, 0)
+            elif args.dataset_select == "kitti":
+                pred_img = torch.where((pred_img >= 0) & (pred_img <= 1), pred_img, 0)
             else:
                 print("Not Preprocess the pred image")
             
             loss_map = (pred_img -images_high_res).abs()
             pixel_loss_one_input = loss_map.mean()
-            
-            
+        
             
 
             images_high_res = images_high_res.permute(0, 2, 3, 1).squeeze()
@@ -437,7 +550,7 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             images_low_res = images_low_res.detach().cpu().numpy()
 
 
-            if args.dataset_select == "carla":
+            if args.dataset_select in ["carla", "carla200000"]:
                 if tuple(args.img_size_low_res)[1] != tuple(args.img_size_high_res)[1]:
                     loss_low_res_part = 0
                 else:
@@ -457,7 +570,20 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                 pcd_pred = img_to_pcd_carla(pred_img, maximum_range = 80)
                 pcd_gt = img_to_pcd_carla(images_high_res, maximum_range = 80)
 
-            else:
+            elif args.dataset_select == "kitti":
+                low_res_index = range(0, h_high_res, downsampling_factor)
+
+                # Evaluate the loss of low resolution part
+                pred_low_res_part = pred_img[low_res_index, :]
+                loss_low_res_part = np.abs(pred_low_res_part - images_low_res)
+                loss_low_res_part = loss_low_res_part.mean()
+
+                pred_img[low_res_index, :] = images_low_res
+                # 3D Evaluation Metrics
+                pcd_pred = img_to_pcd_kitti(pred_img, maximum_range= 120)
+                pcd_gt = img_to_pcd_kitti(images_high_res, maximum_range = 120)
+
+            elif args.dataset_select == "durlar":
                 # Keep the pixel values in low resolution image
                 low_res_index = range(0, h_high_res, downsampling_factor)
 
@@ -471,6 +597,9 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                 # 3D Evaluation Metrics
                 pcd_pred = img_to_pcd(pred_img)
                 pcd_gt = img_to_pcd(images_high_res)
+            
+            else:
+                raise NotImplementedError(f"Cannot find the dataset: {args.dataset_select}")
 
             pcd_all = np.vstack((pcd_pred, pcd_gt))
 
@@ -484,8 +613,17 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             # Calculate metrics
             iou, precision, recall = calculate_metrics(voxel_grid_predicted, voxel_grid_ground_truth)
 
+            f1 = 2 * (precision * recall) / (precision + recall)
+
+            evaluation_metrics['mae'].append(pixel_loss_one_input.item())
+            evaluation_metrics['chamfer_dist'].append(chamfer_dist.item())
+            evaluation_metrics['iou'].append(iou)
+            evaluation_metrics['precision'].append(precision)
+            evaluation_metrics['recall'].append(recall)
+            evaluation_metrics['f1'].append(f1)
+
             
-            if global_step % 100 == 0 or global_step == 1:
+            if global_step % 100 == 0 or global_step == 1 or indices is not None:
                 loss_map_normalized = (loss_map - loss_map.min()) / (loss_map.max() - loss_map.min() + 1e-8)
                 loss_map_normalized = loss_map_normalized.permute(0, 2, 3, 1).squeeze()
                 loss_map_normalized = loss_map_normalized.detach().cpu().numpy()
@@ -513,9 +651,10 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
 
                 if args.save_pcd:
                     
-                    if local_step % 4 == 0:
+                    if local_step % 4 == 0 or indices is not None:
                         # pcd_outputpath = os.path.join(args.output_dir, 'pcd_mc_drop_smaller_noise_threshold')
-                        pcd_outputpath = os.path.join(args.output_dir, 'pcd_mc_drop')
+                        pcd_outputpath = os.path.join(args.output_dir, 'pcd_mc_drop') if indices is None else \
+                                            os.path.join(args.output_dir, 'pcd_mcdrop_vis_paper')
                         if not os.path.exists(pcd_outputpath):
                             os.mkdir(pcd_outputpath)
                         pcd_pred_color = np.zeros_like(pcd_pred)
@@ -533,8 +672,8 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                             vertices=pcd_gt,
                             colors=pcd_gt_color)
                         
-                        point_cloud_pred.export(os.path.join(pcd_outputpath, f"pred_{local_step}.ply"))  
-                        point_cloud_gt.export(os.path.join(pcd_outputpath, f"gt_{local_step}.ply"))    
+                        point_cloud_pred.export(os.path.join(pcd_outputpath, f"pred_{global_step}.ply"))  
+                        point_cloud_gt.export(os.path.join(pcd_outputpath, f"gt_{global_step}.ply"))    
 
                 # exit(0)
 
@@ -545,6 +684,17 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             total_iou += iou
             total_cd += chamfer_dist
             total_loss += pixel_loss_one_input.item()
+            total_f1 += f1
+            total_precision += precision
+            total_recall += recall
+
+    if not args.evaluate_with_specific_indices:
+        evaluation_file_path = os.path.join(args.output_dir,'results_mcdrop.txt')
+        with open(evaluation_file_path, 'w') as file:
+            json.dump(evaluation_metrics, file) 
+
+        print(print(f'Dictionary saved to {evaluation_file_path}'))
+
 
     
     # results = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
@@ -553,6 +703,9 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
         log_writer.add_scalar('Metrics/test_average_iou', total_iou/global_step, 0)
         log_writer.add_scalar('Metrics/test_average_cd', total_cd/global_step, 0)
         log_writer.add_scalar('Metrics/test_average_loss', avg_loss, 0)
+        log_writer.add_scalar('Metrics/test_average_f1', total_f1/global_step, 0)
+        log_writer.add_scalar('Metrics/test_average_precision', total_precision/global_step, 0)
+        log_writer.add_scalar('Metrics/test_average_recall', total_recall/global_step, 0)
 
 
 def get_latest_checkpoint(args):

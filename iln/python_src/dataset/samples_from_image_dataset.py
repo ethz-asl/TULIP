@@ -10,7 +10,7 @@ from dataset.range_images_dataset import RangeImagesDataset, DurlarDataset, Kitt
 
 @register_dataset('range_samples_from_kitti')
 class SamplesFromKittiDataset(KittiDataset):
-    def __init__(self, directory, high_res_path, low_res_path, res_out = (64, 1024), res_in = (16, 1024), num_of_samples=0):
+    def __init__(self, directory, high_res_path, low_res_path, res_out = "64_1024", res_in = "16_1024", num_of_samples=0):
         """
         Constructor of dataset class (pair: input range image & output range samples)
 

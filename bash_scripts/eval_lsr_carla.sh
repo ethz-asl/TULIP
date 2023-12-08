@@ -7,8 +7,8 @@ export PYTHONPATH="${PYTHONPATH}:/cluster/work/riner/users/biyang"
 
 args=(
     -c /cluster/work/riner/users/biyang/config/lsr_carla_eval.yaml
-    -o /cluster/work/riner/users/biyang/experiment/carla/lsr_20000/
-    -cp /cluster/work/riner/users/biyang/experiment/carla/lsr_20000/lsr_400.pth
+    -o /cluster/work/riner/users/biyang/experiment/x16_upsampling/lsr/
+    -cp /cluster/work/riner/users/biyang/iln/python_src/models/trained/lsr_8h_2w_400.pth
     -b 1
     )
 

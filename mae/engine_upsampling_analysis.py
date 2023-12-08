@@ -95,18 +95,34 @@ def analyze(data_loader, model, device, log_writer, args=None):
     model.eval()
     global_step = 0
     local_step = 0
+    window_size = args.window_size
+    patch_size = args.patch_size
 
     # iterator = iter(data_loader)
 
     for batch in tqdm.tqdm(data_loader):
+        if global_step != 899:
+            global_step += 1
+            continue
         images_low_res = batch[0][0] # (B=1, C, H, W)
         images_high_res = batch[1][0] # (B=1, C, H, W)
 
+        
         # target = batch[-1]
         images_low_res = images_low_res.to(device, non_blocking=True)
         images_high_res = images_high_res.to(device, non_blocking=True)
+
+        #######
+        images_low_res_save = torch.expm1(images_low_res)
+        images_low_res_save = images_low_res_save.permute(0, 2, 3, 1).squeeze()
+        images_low_res_save = images_low_res_save.detach().cpu().numpy()
+        # images_low_res_save = scalarMap.to_rgba(images_low_res_save)[..., :3]
+        np.save('test_img.npy', images_low_res_save)
+
         # target = target.to(device, non_blocking=True)
+        
         global_step += 1
+        
         # compute output
 
         with torch.cuda.amp.autocast():
@@ -116,16 +132,16 @@ def analyze(data_loader, model, device, log_writer, args=None):
                                     eval = True) # --> tuple(loss, pred_imgs, masked_imgs)
 
         # Just for debugging    
-        if global_step != 1:
-            break
+        # if global_step != 1:
+        #     break
             
         if log_writer is not None:
             # Visulize less for carla dataset
 
             # Preprocess the image
 
-            if global_step % 100 != 0 and global_step != 1:
-                continue
+            # if global_step % 100 != 0 and global_step != 1:
+            #     continue
 
             pred_img = output['pred']
             
@@ -142,232 +158,114 @@ def analyze(data_loader, model, device, log_writer, args=None):
             images_high_res = scalarMap.to_rgba(images_high_res)[..., :3]
 
 
+            
+
+
             log_writer.add_image('loss_map', torch.Tensor(loss_map_normalized).permute(2, 0, 1), local_step)
             log_writer.add_image('gt-highres', torch.Tensor(images_high_res).permute(2, 0, 1), local_step)
 
             feature_map_downsample = output['features_downsample']
             feature_map_upsample = output['features_upsample']
-            pretrain_feature_map_downsample = output['pretrain_downsample_features']
+            # pretrain_feature_map_downsample = output['pretrain_downsample_features']
 
-            feature_lowres_backbone = output['feature_backbone']
-            feature_highres_backbone = output['target_feature_backbone']
-            cosine_similarity_map = output['cosine_similarity_map']
+            # feature_lowres_backbone = output['feature_backbone']
+            # feature_highres_backbone = output['target_feature_backbone']
+            # cosine_similarity_map = output['cosine_similarity_map']
 
             num_grids = img_size_high_res[1] // img_size_high_res[0]
 
-            for i, feature_map in enumerate([feature_lowres_backbone, feature_highres_backbone, cosine_similarity_map]):
-                b, h, w, c = feature_map.shape
-                feature_map = feature_map.sum(dim=-1, keepdim=True) # b h w c
+            feature_map_first = feature_map_downsample[0]
+            feature_map_last = feature_map_upsample[-1] 
+            input_size = (args.img_size_low_res)
+            h_in = input_size[0] // patch_size[0]
+            w_in = input_size[1] // patch_size[1]
 
-                feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min() + 1e-8)
+            feature_map_first = feature_map_first.sum(dim=-1, keepdim=True)
+            feature_map_last = feature_map_last.sum(dim=-1, keepdim=True)
+            feature_map_first = (feature_map_first - feature_map_first.min()) / (feature_map_first.max() - feature_map_first.min() + 1e-8)
+            feature_map_last = (feature_map_last - feature_map_last.min()) / (feature_map_last.max() - feature_map_last.min() + 1e-8)
+            if window_size[0] == window_size[1]:
+                feature_map_first= feature_map_first.reshape(1, h_in, w_in, 1)
+                feature_map_last = feature_map_last.reshape(1, img_size_high_res[0], img_size_high_res[1], 1)
 
-                h_in = int((h*w / num_grids) ** 0.5)
-                w_in = int(h*w / h_in)
+            feature_map_first = feature_map_first.squeeze() # H*W
+            feature_map_first = feature_map_first.detach().cpu().numpy()
 
-                # print(h_in, w_in)
-                params = (h_in, 
-                            w_in,
-                            1,
-                            num_grids,
-                            int(num_grids**0.5))
-                
+            feature_map_last = feature_map_last.squeeze() # H*W
+            feature_map_last = feature_map_last.detach().cpu().numpy()
 
-                feature_map = grid_reshape_backward(feature_map, params, order="bhwc")
-
-                feature_map = feature_map.squeeze() # H*W
-                feature_map = feature_map.detach().cpu().numpy()
-
-                feature_map = scalarMap_loss_map.to_rgba(feature_map)[..., :3]
-
-
-                if i == 0:
-                    log_writer.add_image(f'LowRes-Feature Map-Backbone', torch.Tensor(feature_map).permute(2, 0, 1), local_step)
-                elif i == 1:
-                    log_writer.add_image(f'HighRes-Feature Map-Backbone', torch.Tensor(feature_map).permute(2, 0, 1), local_step)
-                elif i == 2:
-                    log_writer.add_image(f'Cosine Similarity Map', torch.Tensor(feature_map).permute(2, 0, 1), local_step)
-                    
-
-            for i, feature_map in enumerate(pretrain_feature_map_downsample):
-                b, h, w, c = feature_map.shape
-
-                # feature_map = feature_map.reshape(b, h, w//4, c*4)
+            feature_map_first = scalarMap_loss_map.to_rgba(feature_map_first)[..., :3]
+            feature_map_last = scalarMap_loss_map.to_rgba(feature_map_last)[..., :3]
 
 
-                # patch_size = (1, 4)
-                # grid_size = (h//patch_size[0], w//patch_size[1])
-
-                # feature_map = rearrange(feature_map, 'B H W C -> B C H W')
-
-                # feature_map = patchify(feature_map, patch_size, grid_size, in_chans=c)
-                
-                # feature_map = feature_map.reshape(b, int((grid_size[0]*grid_size[1])**0.5), int((grid_size[0]*grid_size[1])**0.5), feature_map.shape[-1])
-                
-                # b, h, w, c = feature_map.shape
-
-                feature_map = feature_map.sum(dim=-1, keepdim=True) # b h w c
-
-                feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min() + 1e-8)
-
-
-                h_in = int((h*w / num_grids) ** 0.5)
-                w_in = int(h*w / h_in)
-
-                params = (h_in, 
-                            w_in,
-                            1,
-                            num_grids,
-                            int(num_grids**0.5))
-
-                feature_map = grid_reshape_backward(feature_map, params, order="bhwc")
-                # feature_map = rearrange(feature_map, 'B H W C -> B (H W) C')
-                # feature_map = unpatchify(feature_map, patch_size, grid_size, in_chans=c)
-
-
-                # feature_map = feature_map.reshape(b , h,w//4, c*4)
-
-                
-
-                # feature_map = feature_map.permute(0, 2, 1, 3)
-
-                # params = (h_in, 
-                #             w_in,
-                #             c,
-                #             num_grids,
-                #             int(num_grids**0.5))
-
-                # feature_map = grid_reshape_backward(feature_map, params, order="bhwc")
-
-                # print(feature_map.shape)
-
-                # # feature_map_new = torch.zeros(b, h//2, w//2, 1)
-
-                # feature_map_sub1 = feature_map[:, :h//2, :w//4, :]
-                # feature_map_sub2 = feature_map[:, h//2:h, :w//4, :]
-                # feature_map = torch.cat([feature_map_sub1, feature_map_sub2], dim=-2)
-
-                # print(feature_map.shape)
-
-
-                # feature_map = feature_map.reshape(b, h//2, w*2, c)
-                # feature_map = feature_map.reshape(b, h//4, w*4, c)
-
-                
-                
-
-                # feature_map = grid_reshape_backward(feature_map, params, order="bhwc")
-                
-                
-
-                # feature_map = feature_map.reshape(b, h_in, w_in, 1)
-
-                
-                
-
-                # feature_map = rearrange(feature_map, 'B H W C -> B C H W')
-
-                # feature_map = patchify(feature_map, patch_size, grid_size)
-
-                # feature_map = feature_map.reshape(b, h_in, w_in, 1)
-                # feature_map = rearrange(feature_map, 'B C H W -> B H W C')
-
-                # feature_map = unpatchify(feature_map, patch_size, grid_size)
-
-                # feature_map = rearrange(feature_map, 'B C H W -> B H W C')
-
-
-                # feature_map_sub1 = feature_map[:, :h//2, :w, :]
-                # feature_map_sub2 = feature_map[:, h//2:h, :w, :]
-                
-                # feature_map_sub1 = feature_map_sub1.reshape(b, h//4, w*2, 1)
-                # feature_map_sub2 = feature_map_sub2.reshape(b, h//4, w*2, 1)
-                
-                # feature_map = torch.cat([feature_map_sub1, feature_map_sub2], dim=-2)
-
-                # feature_map = feature_map.reshape(b, h_in, w_in, 1)
-                # feature_map_new = torch.zeros(b, h_in, w_in, 1)
-                # feature_map_new[:, :h_in, :w_in//4, :] = feature_map[:, :h//2, :w//2].reshape(b, h_in, w_in//4, 1)
-                # feature_map_new[:, :h_in, w_in//4:w_in//2, :] = feature_map[:, :h//2, w//2:w].reshape(b, h_in, w_in//4, 1)
-                # feature_map_new[:, :h_in, w_in//2:3*w_in//4, :] = feature_map[:, h//2:h, :w//2].reshape(b, h_in, w_in//4, 1)
-                # feature_map_new[:, :h_in, 3*w_in//4:w_in, :] = feature_map[:, h//2:h, w//2:w].reshape(b, h_in, w_in//4, 1)
-
-
-                # feature_map = feature_map_new
-
-                # feature_map = feature_map.reshape(b, h//ph, w//pw, ph*pw*1)
-                
-                # print(feature_map.shape)
-
-                # exit(0)
-
-                feature_map = feature_map.squeeze() # H*W
-                feature_map = feature_map.detach().cpu().numpy()
-
-                feature_map = scalarMap_loss_map.to_rgba(feature_map)[..., :3]
-
-                log_writer.add_image(f'Pretrain-Downsample:{str(h)}-{str(w)}-{str(c)}-{str(i)}', torch.Tensor(feature_map).permute(2, 0, 1), local_step)
-
-
+            log_writer.add_image(f'feature_map_first', torch.Tensor(feature_map_first).permute(2, 0, 1), local_step)
+            log_writer.add_image(f'feature_map_last', torch.Tensor(feature_map_last).permute(2, 0, 1), local_step)
 
             
-            for i, feature_map in enumerate(feature_map_downsample):
-                # print("Downsample")
-                # Grid Reshaping Backward: (512x512 -> 128 x 2048)
-                # print(feature_map.shape)
-                b, h, w, c = feature_map.shape
-                feature_map = feature_map.sum(dim=-1, keepdim=True) # b h w c
+            # for i, feature_map in enumerate(feature_map_downsample):
+            #     # print("Downsample")
+            #     # Grid Reshaping Backward: (512x512 -> 128 x 2048)
+            #     # print(feature_map.shape)
+            #     b, h, w, c = feature_map.shape
+            #     feature_map = feature_map.sum(dim=-1, keepdim=True) # b h w c
 
-                feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min() + 1e-8)
+            #     feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min() + 1e-8)
 
-                h_in = int((h*w / num_grids) ** 0.5)
-                w_in = int(h*w / h_in)
+            #     h_in = int((h*w / num_grids) ** 0.5)
+            #     w_in = int(h*w / h_in)
 
-                # print(h_in, w_in)
-                params = (h_in, 
-                            w_in,
-                            1,
-                            num_grids,
-                            int(num_grids**0.5))
+            #     # # print(h_in, w_in)
+            #     # params = (h_in, 
+            #     #             w_in,
+            #     #             1,
+            #     #             num_grids,
+            #     #             int(num_grids**0.5))
                 
 
-                feature_map = grid_reshape_backward(feature_map, params, order="bhwc")
+            #     # feature_map = grid_reshape_backward(feature_map, params, order="bhwc")
+            #     if window_size[0] == window_size[1]:
+            #         feature_map = feature_map.reshape(b, h_in, w_in, 1)
 
-                feature_map = feature_map.squeeze() # H*W
-                feature_map = feature_map.detach().cpu().numpy()
+            #     feature_map = feature_map.squeeze() # H*W
+            #     feature_map = feature_map.detach().cpu().numpy()
 
-                feature_map = scalarMap_loss_map.to_rgba(feature_map)[..., :3]
+            #     feature_map = scalarMap_loss_map.to_rgba(feature_map)[..., :3]
 
-                log_writer.add_image(f'Downsample:{str(h)}-{str(w)}-{str(c)}-{str(i)}', torch.Tensor(feature_map).permute(2, 0, 1), local_step)
+            #     log_writer.add_image(f'Downsample:{str(h)}-{str(w)}-{str(c)}-{str(i)}', torch.Tensor(feature_map).permute(2, 0, 1), local_step)
 
 
-            for i, feature_map in enumerate(feature_map_upsample):
-                # print("Upsample")
-                # Grid Reshaping Backward: (512x512 -> 128 x 2048)
-                # print(feature_map.shape)
-                b, h, w, c = feature_map.shape
-                feature_map = feature_map.sum(dim=-1, keepdim=True) # b h w c
+            # for i, feature_map in enumerate(feature_map_upsample):
+            #     # print("Upsample")
+            #     # Grid Reshaping Backward: (512x512 -> 128 x 2048)
+            #     # print(feature_map.shape)
+            #     b, h, w, c = feature_map.shape
+            #     feature_map = feature_map.sum(dim=-1, keepdim=True) # b h w c
 
-                feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min() + 1e-8)
+            #     feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min() + 1e-8)
                 
-                h_in = int((h*w / num_grids) ** 0.5)
-                w_in = int(h*w / h_in)
+            #     h_in = int((h*w / num_grids) ** 0.5)
+            #     w_in = int(h*w / h_in)
 
-                # print(h_in, w_in)
-                params = (h_in, 
-                            w_in,
-                            1,
-                            num_grids,
-                            int(num_grids**0.5))
+            #     # print(h_in, w_in)
+            #     # params = (h_in, 
+            #     #             w_in,
+            #     #             1,
+            #     #             num_grids,
+            #     #             int(num_grids**0.5))
                 
 
-                feature_map = grid_reshape_backward(feature_map, params, order="bhwc")
+            #     # feature_map = grid_reshape_backward(feature_map, params, order="bhwc")
 
-                feature_map = feature_map.squeeze() # H*W
-                feature_map = feature_map.detach().cpu().numpy()
+            #     if window_size[0] == window_size[1]:
+            #         feature_map = feature_map.reshape(b, h_in, w_in, 1)
 
-                feature_map = scalarMap_loss_map.to_rgba(feature_map)[..., :3]
 
-                log_writer.add_image(f'Upsample:{str(h)}-{str(w)}-{str(c)}-{str(i)}', torch.Tensor(feature_map).permute(2, 0, 1), local_step)
+            #     feature_map = feature_map.squeeze() # H*W
+            #     feature_map = feature_map.detach().cpu().numpy()
+
+            #     feature_map = scalarMap_loss_map.to_rgba(feature_map)[..., :3]
+
+            #     log_writer.add_image(f'Upsample:{str(h)}-{str(w)}-{str(c)}-{str(i)}', torch.Tensor(feature_map).permute(2, 0, 1), local_step)
 
             
 

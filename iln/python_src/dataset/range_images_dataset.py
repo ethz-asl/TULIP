@@ -8,7 +8,7 @@ from dataset.dataset_utils import *
 
 @register_dataset('range_images_kitti')
 class KittiDataset(Dataset):
-    def __init__(self, directory, high_res_path, low_res_path, res_out = (64, 1024), res_in = (16, 1024)):
+    def __init__(self, directory, high_res_path, low_res_path, res_out = "64_1024", res_in = "16_1024"):
         """
         Constructor of dataset class (pair: input range image & output range image).
 
@@ -23,10 +23,17 @@ class KittiDataset(Dataset):
         # Dataset configurations
         self.dataset_directory = directory
 
+        res_in = (res_in.split('_')[0], res_in.split('_')[1])
+        res_out = (res_out.split('_')[0], res_out.split('_')[1])
+
         # Read the LiDAR configurations
         lidar_config_filename = os.path.join(directory, 'kitti.yaml')
         self.lidar_in = initialize_lidar(lidar_config_filename, channels=int(res_in[0]), points_per_ring=int(res_in[1]))
         self.lidar_out = initialize_lidar(lidar_config_filename, channels=int(res_out[0]), points_per_ring=int(res_out[1]))
+
+
+        self.downsample_factor_h = self.lidar_out['channels'] // self.lidar_in['channels']
+        self.downsample_factor_w = self.lidar_out['points_per_ring'] // self.lidar_in['points_per_ring']
 
         # Read all the filenames
         # self.input_range_image_filenames = []
@@ -70,7 +77,10 @@ class KittiDataset(Dataset):
         # Downsample from the high res image
         input_range_image = downsample_range_durlar(input_range_image, 
                                                     h_high_res=self.lidar_out['channels'], 
-                                                    downsample_factor=self.lidar_out['channels'] // self.lidar_in['channels'])
+                                                    downsample_factor=self.downsample_factor_h)
+        input_range_image = downsample_range_durlar_width(input_range_image,
+                                                          w_high_res=self.lidar_out['points_per_ring'],
+                                                            downsample_factor=self.downsample_factor_w)
 
         output_range_image = read_range_kitti(output_range_image_filename)
 
@@ -82,7 +92,6 @@ class KittiDataset(Dataset):
         input_range_image -= 1.0
         output_range_image *= 2.0
         output_range_image -= 1.0
-
         return input_range_image[np.newaxis, :, :], output_range_image[np.newaxis, :, :]
 
 
@@ -205,8 +214,10 @@ class RangeImagesDataset(Dataset):
         self.output_range_image_filenames = []
 
 
-        availbale_data = os.listdir(os.path.join(directory, scene_ids[0], res_out))
+        availbale_data = os.listdir(os.path.join(directory, scene_ids[0]))
         self.INPUT_AVAILABLE = res_in in availbale_data
+
+        
 
         for scene_id in scene_ids:
             
@@ -261,6 +272,7 @@ class RangeImagesDataset(Dataset):
         :param item: index of pair
         :return normalized range image pair
         """
+
         if self.memory_fetch:
             # Read the pair of input and output range images (normalized)
             input_range_image = self.range_image_pairs[item, :self.pair_split_idx].reshape(self.lidar_in['channels'], self.lidar_in['points_per_ring'])

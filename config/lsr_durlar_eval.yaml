@@ -20,5 +20,5 @@ logger:
   wandb_disabled: False
   project_name: "durlar_evaluation"
   entity: "biyang"
-  run_name: "lsr_300epochs"
-  save_pcd: True
+  run_name: "train_on_carla_test_on_durlar"
+  save_pcd: False

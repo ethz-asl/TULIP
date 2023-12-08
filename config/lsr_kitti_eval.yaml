@@ -3,8 +3,8 @@ dataset:
   type: range_images_kitti
   args:
     directory: /cluster/work/riner/users/biyang/iln/samples/
-    high_res_path: /cluster/work/riner/users/biyang/dataset/KITTI/train20000
-    low_res_path: /cluster/work/riner/users/biyang/dataset/KITTI/train20000
+    high_res_path: /cluster/work/riner/users/biyang/dataset/KITTI/val
+    low_res_path: /cluster/work/riner/users/biyang/dataset/KITTI/val
     # res_in: '32_2048'
     # res_out: '128_2048'
 
@@ -16,11 +16,11 @@ model:
     scale_w: 1
 
 logger:
-  wandb_disabled: False
+  wandb_disabled: True
   # evaluation = False
   # save_pcd = False
   # project_name = "lidar_sr_network"
-  project_name: 'sota_kitti'
+  project_name: 'kitti_evaluation'
   entity: "biyang"
-  run_name: "lsr-xxxepochs"
+  run_name: "lsr-600epochs"
   save_pcd: True

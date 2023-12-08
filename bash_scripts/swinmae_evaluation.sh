@@ -15,11 +15,14 @@ args=(
     --warmup_epochs 60 
     --optimizer adamw
     --eval
+    # --mc_drop
+    # --noise_threshold 0.0005
     # Model parameters
     # --curriculum_learning
-    --model_select swin_mae
-    # --model swin_mae_patch2_base_line_ws4
-    --model swin_mae_deepencoder_patch2_base_line_ws4
+    # --model_select swin_mae
+    --model_select swin_autoencoder
+    --model swin_mae_patch2_base_line_ws4
+    # --model swin_mae_deepencoder_patch2_base_line_ws4
     --grid_reshape
     --circular_padding
     --conv_projection
@@ -34,16 +37,16 @@ args=(
     # --crop
     --loss_on_unmasked
     # WandB Parameters
-    --run_name eval_800epochs:durlar_pretrain_128x2048_linepatch1x4_deepencoder_mr025
+    --run_name eval_200epcohs:weightedsum_depthwiseconcat
     --entity biyang
     --project_name swin_mae_lowres_durlar
     # --wandb_disabled
-    --output_dir ./experiment/durlar/LowRes/mr025_128_2048_linepatch1x4_deepencoder/
-    --mask_ratio 0.25
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/LowRes/autoencoder_depthwiseconcat_weightedsum/
+    --mask_ratio 0
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
-    --img_size 128 2048
-    --input_size 128
-    --in_chans 1
+    --img_size 32 2048
+    --input_size 32
+    --in_chans 4
 
     
     # --img_size 224 224

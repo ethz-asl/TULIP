@@ -16,9 +16,11 @@ args=(
     --warmup_epochs 20
     # Model parameters
     --eval
+    # --evaluate_with_specific_indices
     --grid_size 0.1
     # --mc_drop
-    # --noise_threshold 0.0005
+    # --num_mcdropout_iterations 50
+    # --noise_threshold 0.03
     # --edge_loss
     --model_select swin_unet
     # --pretrain /cluster/work/riner/users/biyang/experiment/durlar/LowRes/GridReshape_CircularPadding_ConvProjection_ws4/checkpoint-59.pth
@@ -28,7 +30,7 @@ args=(
     # --pretrain_mae_model swin_mae_patch4_base
     --pixel_shuffle
     --circular_padding
-    --grid_reshape
+    # --grid_reshape
     --pixel_shuffle_expanding
     # Dataset
     --dataset_select carla
@@ -38,16 +40,16 @@ args=(
     # --keep_close_scan
     --save_pcd
     # WandB Parameters
-    --run_name Carla128_2048:pretrain500_onlyencoder_600epochs
+    --run_name tulip_16x1024_256x4096
     --entity biyang
     # --wandb_disabled
     --project_name carla_evaluation
-    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling/128_2048_32x2048pretrain500_onlyencoder/
+    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling/tulip_16x1024_256x4096/
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
-    --img_size_low_res 32 2048
-    --img_size_high_res 128 2048
-    --window_size 4
+    --img_size_low_res 16 1024
+    --img_size_high_res 256 4096
+    --window_size 2 8
     --patch_size 1 4
     # --patch_size 4 1
     # --window_size 8
