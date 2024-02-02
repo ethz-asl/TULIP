@@ -10,7 +10,7 @@ from dataset.range_images_dataset import RangeImagesDataset, DurlarDataset, Kitt
 
 @register_dataset('range_samples_from_kitti')
 class SamplesFromKittiDataset(KittiDataset):
-    def __init__(self, directory, high_res_path, low_res_path, res_out = "64_1024", res_in = "16_1024", num_of_samples=0):
+    def __init__(self, directory, high_res_path, low_res_path, res_out = "64_1024", res_in = "16_1024", num_of_samples=0, downstream_task = False):
         """
         Constructor of dataset class (pair: input range image & output range samples)
 
@@ -21,7 +21,7 @@ class SamplesFromKittiDataset(KittiDataset):
         :param num_of_samples: the number of samples used for training/testing (0: the use of all the samples)
         :param memory_fetch: on/off for fetching all the data into memory storage
         """
-        super(SamplesFromKittiDataset, self).__init__(directory, high_res_path, low_res_path, res_out, res_in)
+        super(SamplesFromKittiDataset, self).__init__(directory, high_res_path, low_res_path, res_out, res_in, downstream_task)
 
         # Dataset configurations
         self.num_of_samples = num_of_samples
@@ -56,7 +56,7 @@ class SamplesFromKittiDataset(KittiDataset):
         :return normalized range data pair (output data can be sub-sampled)
         """
         # Read the normalized range image pair
-        input_range_image, output_range_image = super().__getitem__(item)
+        input_range_image, output_range_image, name, intensity = super().__getitem__(item)
 
         max_num_of_samples = output_range_image.shape[1] * output_range_image.shape[2]
         if 0 < self.num_of_samples < max_num_of_samples:
@@ -64,11 +64,11 @@ class SamplesFromKittiDataset(KittiDataset):
             sample_idx = np.random.choice(max_num_of_samples, self.num_of_samples, replace=False)
             output_queries = self.queries[sample_idx]
             output_ranges = output_range_image.flatten()[sample_idx]
-            return input_range_image, output_queries, output_ranges[:, np.newaxis]
+            return input_range_image, output_queries, output_ranges[:, np.newaxis], name, intensity
         else:
             # Use all the output samples without sub-sampling
             output_ranges = output_range_image.flatten()
-            return input_range_image, self.queries, output_ranges[:, np.newaxis]
+            return input_range_image, self.queries, output_ranges[:, np.newaxis], name, intensity
         
 
 

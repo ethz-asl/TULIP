@@ -28,6 +28,7 @@ envs_completionformer/
 sota_reproduce/
 *.npy
 mae/util/__pycache__/*
+downstream_tasks/
 
 
 

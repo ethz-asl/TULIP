@@ -1046,7 +1046,7 @@ class SwinUnet(nn.Module):
 
         return loss, pixel_loss
 
-    def forward(self, x, target, img_size_high_res, eval = False, mc_drop = False):
+    def forward(self, x, target, eval = False, mc_drop = False):
 
 
         input = x.clone().detach()
@@ -1061,8 +1061,8 @@ class SwinUnet(nn.Module):
         if self.grid_reshape:
              # Grid Reshape
             x = grid_reshape(x, self.params_input)
-        # elif self.window_size[0] == self.window_size[1]:
-        #     x = x.contiguous().view((x.shape[0], int((x.shape[1] * x.shape[2])**0.5), int((x.shape[1] * x.shape[2])**0.5), x.shape[3]))
+        elif self.window_size[0] == self.window_size[1]:
+            x = x.contiguous().view((x.shape[0], int((x.shape[1] * x.shape[2])**0.5), int((x.shape[1] * x.shape[2])**0.5), x.shape[3]))
         x = self.pos_drop(x) 
         x_save = []
         for i, layer in enumerate(self.layers):

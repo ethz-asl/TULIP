@@ -84,7 +84,6 @@ def train_one_epoch(model: torch.nn.Module,
         with torch.cuda.amp.autocast():
             _, total_loss, pixel_loss = model(samples_low_res.contiguous(), 
                             samples_high_res.contiguous(), 
-                            img_size_high_res = args.img_size_high_res,
                             eval = False)
 
         # loss = criterion(pred, samples_high_res.contiguous())
@@ -204,9 +203,8 @@ def evaluate(data_loader, model, device, log_writer, args=None):
         with torch.cuda.amp.autocast():
             pred_img, _, _= model(images_low_res, 
                                     images_high_res, 
-                                    img_size_high_res = args.img_size_high_res,
                                     eval = True) # --> tuple(loss, pred_imgs, masked_imgs)
-            
+            print(pred_img.shape)
         # loss = criterion(pred_img, images_high_res)
 
             
@@ -243,6 +241,7 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             pred_img = pred_img.detach().cpu().numpy()
             images_low_res = images_low_res.detach().cpu().numpy()
 
+
             if args.dataset_select in ["carla", "carla200000"]:
 
                 if tuple(args.img_size_low_res)[1] != tuple(args.img_size_high_res)[1]:
@@ -274,6 +273,10 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                 loss_low_res_part = loss_low_res_part.mean()
 
                 pred_img[low_res_index, :] = images_low_res
+
+                if args.keep_close_scan:
+                    pred_img[pred_img > 0.375] = 0
+                    images_high_res[images_high_res > 0.375] = 0 
                 # 3D Evaluation Metrics
                 pcd_pred = img_to_pcd_kitti(pred_img, maximum_range= 120)
                 pcd_gt = img_to_pcd_kitti(images_high_res, maximum_range = 120)
@@ -289,6 +292,10 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                 loss_low_res_part = loss_low_res_part.mean()
 
                 pred_img[low_res_index, :] = images_low_res
+
+                if args.keep_close_scan:
+                    pred_img[pred_img > 0.25] = 0
+                    images_high_res[images_high_res > 0.25] = 0 
 
                 # # Test with edge detector
                 # pred_edges = cv2.Canny((pred_img*255).astype(np.uint8), threshold1=30, threshold2=100)
@@ -476,6 +483,14 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                           'recall':[],
                           'f1':[]}
 
+    # # Test with setting different ranges
+    # outof50rate = 0
+    # outof375rate = 0
+    # outof25rate = 0
+    # outof17rate = 0
+    # num_total_points = tuple(args.img_size_high_res)[0] * tuple(args.img_size_high_res)[1]
+
+    # print(len(data_loader))
     for batch in tqdm.tqdm(data_loader):
 
         if indices is not None:
@@ -483,8 +498,11 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                 global_step += 1
                 continue
 
-        images_low_res = batch[0][0] # (B=1, C, H, W)
-        images_high_res = batch[1][0] # (B=1, C, H, W)
+        images_low_res = batch[0]['sample'] # (B=1, C, H, W)
+        images_high_res = batch[1]['sample'] # (B=1, C, H, W)
+
+        
+
 
         # target = batch[-1]
         images_low_res = images_low_res.to(device, non_blocking=True)
@@ -492,6 +510,23 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
         # target = target.to(device, non_blocking=True)
         global_step += 1
         # compute output
+
+        # # Test with setting different ranges
+        # num_valid = num_total_points - torch.sum(images_high_res == 0)
+        # outof50rate += torch.sum(images_high_res >= 0.5) / num_valid
+        # outof375rate += torch.sum(images_high_res >= 0.375) / num_valid
+        # outof25rate += torch.sum(images_high_res >= 0.25) / num_valid
+        # outof17rate += torch.sum(images_high_res >= 20/120) / num_valid
+
+
+        # continue
+        
+        
+
+
+
+
+        
 
         with torch.cuda.amp.autocast():
             
@@ -503,7 +538,6 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
 
                 pred_imgs = model(test_imgs_input, 
                                 images_high_res, 
-                                img_size_high_res = args.img_size_high_res,
                                 mc_drop = True) # --> tuple(loss, pred_imgs, masked_imgs)
                 
                 pred_img_iteration[i*iteration_batch:i*iteration_batch+input_batch, ...] = pred_imgs
@@ -514,6 +548,12 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             pred_img[noise_removal] = 0
 
         # loss = criterion(pred_img, images_high_res)
+
+        
+
+            
+
+
         if log_writer is not None:
 
             if args.log_transform:
@@ -549,6 +589,30 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             pred_img = pred_img.detach().cpu().numpy()
             images_low_res = images_low_res.detach().cpu().numpy()
 
+            if args.downstream_task:
+                name = batch[1]['name'][0]
+                intensity_high = batch[1]['intensity']
+                intensity_low = batch[0]['intensity']
+                intensity_high = intensity_high.permute(0, 2, 3, 1).squeeze()
+                intensity_high = intensity_high.detach().cpu().numpy()
+                intensity_low = intensity_low.permute(0, 2, 3, 1).squeeze()
+                intensity_low = intensity_low.detach().cpu().numpy()
+
+                low_res_index = range(0, h_high_res, downsampling_factor)
+                pred_img[low_res_index, :] = images_low_res
+
+                pcd_pred = img_to_pcd_kitti(pred_img, maximum_range= 120, intensity = intensity_high)
+                pcd_low = img_to_pcd_kitti(images_low_res, maximum_range = 120, low_res=True, intensity = intensity_low)
+
+
+                pcd_pred.astype(np.float32).tofile(os.path.join("/cluster/work/riner/users/biyang/dataset/SemanticKITTI/dataset/sequences/08/tulip64x1024/", name))
+                pcd_low.astype(np.float32).tofile(os.path.join("/cluster/work/riner/users/biyang/dataset/SemanticKITTI/dataset/sequences/08/velodyne16x1024/", name)) 
+
+            
+                continue
+
+                
+
 
             if args.dataset_select in ["carla", "carla200000"]:
                 if tuple(args.img_size_low_res)[1] != tuple(args.img_size_high_res)[1]:
@@ -567,6 +631,7 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                 # Refer to code in iln github
                 pred_img = np.flip(pred_img)
                 images_high_res = np.flip(images_high_res)
+
                 pcd_pred = img_to_pcd_carla(pred_img, maximum_range = 80)
                 pcd_gt = img_to_pcd_carla(images_high_res, maximum_range = 80)
 
@@ -579,6 +644,11 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                 loss_low_res_part = loss_low_res_part.mean()
 
                 pred_img[low_res_index, :] = images_low_res
+
+                if args.keep_close_scan:
+                    pred_img[pred_img > 0.25] = 0
+                    images_high_res[images_high_res > 0.25] = 0 
+
                 # 3D Evaluation Metrics
                 pcd_pred = img_to_pcd_kitti(pred_img, maximum_range= 120)
                 pcd_gt = img_to_pcd_kitti(images_high_res, maximum_range = 120)
@@ -594,6 +664,9 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
 
                 pred_img[low_res_index, :] = images_low_res
                 
+                if args.keep_close_scan:
+                    pred_img[pred_img > 0.25] = 0
+                    images_high_res[images_high_res > 0.25] = 0 
                 # 3D Evaluation Metrics
                 pcd_pred = img_to_pcd(pred_img)
                 pcd_gt = img_to_pcd(images_high_res)
@@ -621,6 +694,9 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             evaluation_metrics['precision'].append(precision)
             evaluation_metrics['recall'].append(recall)
             evaluation_metrics['f1'].append(f1)
+
+
+            print(pixel_loss_one_input.item(), chamfer_dist.item(), iou, precision, recall, f1)
 
             
             if global_step % 100 == 0 or global_step == 1 or indices is not None:
@@ -695,6 +771,8 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
 
         print(print(f'Dictionary saved to {evaluation_file_path}'))
 
+    # Test with setting different ranges
+    # print(outof375rate/global_step, outof17rate/global_step, outof25rate/global_step, outof50rate/global_step)
 
     
     # results = {k: meter.global_avg for k, meter in metric_logger.meters.items()}

@@ -43,6 +43,7 @@ from evaluate_different_ranges import evaluate_diff_ranges, MCdrop_diff_ranges
 import wandb
 
 import swin_mae_ploss
+import vit_unet
 # from torch_ema import ExponentialMovingAverage
 
 
@@ -74,7 +75,7 @@ def get_args_parser():
 
     # Model parameters
     parser.add_argument('--model_select', default='mae', type=str,
-                        choices=['mae', 'swin_mae', 'swin_unet', 
+                        choices=['mae', 'swin_mae', 'swin_unet', 'vit_unet',
                                  'swin_unet_v2', 'swin_unet_deep', 'swin_unet_deeper',
                                  'swin_unet_moredepths', 'swin_unet_v2_deep', 'swin_unet_v2_deeper',
                                  'swin_unet_v2_moredepths', 'swin_unet_with_pretrain'])
@@ -214,6 +215,7 @@ def get_args_parser():
     parser.add_argument('--run_name', type = str, default = None)
 
     parser.add_argument('--eval', action='store_true', help="evaluation")
+    parser.add_argument('--downstream_task', action='store_true', help="if data is used for downstream_task")
     parser.add_argument('--evaluate_with_specific_indices', action='store_true', help="evaluation with specific indices")
     parser.add_argument('--evaluate_with_different_ranges', action='store_true', help="evaluation with histogramized ranges")
     parser.add_argument('--analyze', action='store_true', help="call model analysis")
@@ -411,24 +413,38 @@ def main(args):
 
 
     else:
-        model = swin_unet.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
-                                                    target_img_size = tuple(args.img_size_high_res),
-                                                        patch_size = tuple(args.patch_size), 
-                                                        in_chans = args.in_chans,
-                                                        window_size = args.window_size,
-                                                        edge_loss = args.edge_loss,
-                                                        pixel_shuffle = args.pixel_shuffle,
-                                                        grid_reshape = args.grid_reshape,
-                                                        circular_padding = args.circular_padding,
-                                                        log_transform = args.log_transform,
-                                                        depth_scale_loss = args.depth_scale_loss,
-                                                        pixel_shuffle_expanding = args.pixel_shuffle_expanding,
-                                                        relative_dist_loss = args.relative_dist_loss,
-                                                        perceptual_loss = args.perceptual_loss,
-                                                        pretrain_mae = pretrain_mae_model,
-                                                        output_multidims = args.output_multidims,
-                                                        delta_pixel_loss = args.delta_pixel_loss,
-                                                        shift_only_leftright = args.shift_only_leftright,)
+        if args.model_select.__contains__('vit_unet'):
+            model = vit_unet.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
+                                                            patch_size = tuple(args.patch_size), 
+                                                            in_chans = args.in_chans,
+                                                            circular_padding = args.circular_padding,
+                                                            log_transform = args.log_transform)
+            
+
+            # pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            # print(f"There are totally {pytorch_total_params} parameters in the model")
+
+            # exit(0)
+        
+        else:
+            model = swin_unet.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
+                                                        target_img_size = tuple(args.img_size_high_res),
+                                                            patch_size = tuple(args.patch_size), 
+                                                            in_chans = args.in_chans,
+                                                            window_size = args.window_size,
+                                                            edge_loss = args.edge_loss,
+                                                            pixel_shuffle = args.pixel_shuffle,
+                                                            grid_reshape = args.grid_reshape,
+                                                            circular_padding = args.circular_padding,
+                                                            log_transform = args.log_transform,
+                                                            depth_scale_loss = args.depth_scale_loss,
+                                                            pixel_shuffle_expanding = args.pixel_shuffle_expanding,
+                                                            relative_dist_loss = args.relative_dist_loss,
+                                                            perceptual_loss = args.perceptual_loss,
+                                                            pretrain_mae = pretrain_mae_model,
+                                                            output_multidims = args.output_multidims,
+                                                            delta_pixel_loss = args.delta_pixel_loss,
+                                                            shift_only_leftright = args.shift_only_leftright,)
         
     # Load pretrained model
     if args.pretrain is not None and not args.perceptual_loss:
@@ -489,6 +505,11 @@ def main(args):
                 args=args, model_without_ddp=model, optimizer=None,
                 loss_scaler=None)
         model.to(device)
+
+        # pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        # print(f"There are totally {pytorch_total_params} parameters in the model")
+
+        # exit(0)
         
         print("Start Evaluation")
         if args.mc_drop and not args.evaluate_with_different_ranges:

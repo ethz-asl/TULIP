@@ -93,7 +93,7 @@ def img_to_pcd(img_range, maximum_range = 120):  # 1 x H x W cuda torch
 #     return points
 
 # Maybe it also can be used for carla200000, have to set the different parameter
-def img_to_pcd_kitti(img_range, maximum_range = 120, low_res = False):
+def img_to_pcd_kitti(img_range, maximum_range = 120, low_res = False, intensity = None):
     if low_res:
         image_rows = 16
     else:
@@ -125,8 +125,11 @@ def img_to_pcd_kitti(img_range, maximum_range = 120, low_res = False):
     x = np.sin(horizonAngle) * np.cos(verticalAngle) * lengthList
     y = np.cos(horizonAngle) * np.cos(verticalAngle) * lengthList
     z = np.sin(verticalAngle) * lengthList
-        
-    points = np.column_stack((x,y,z))
+    if intensity is not None:
+        intensity = intensity.reshape(image_rows*image_cols)
+        points = np.column_stack((x,y,z,intensity))
+    else:    
+        points = np.column_stack((x,y,z))
 
     return points
 

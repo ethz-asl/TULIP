@@ -16,11 +16,12 @@ args=(
     --warmup_epochs 20
     # Model parameters
     --eval
-    --evaluate_with_specific_indices
+    # --evaluate_with_specific_indices
     #--evaluate_with_different_ranges
-    --grid_size 0.1
+    # --grid_size 0.1
     --mc_drop
     --noise_threshold 0.03
+    --downstream_task
     # --edge_loss
     --model_select swin_unet_deep
     # --shift_only_leftright
@@ -37,15 +38,18 @@ args=(
     --log_transform
     # Dataset
     --dataset_select kitti
-    --data_path_low_res /cluster/work/riner/users/biyang/dataset/KITTI/
-    --data_path_high_res /cluster/work/riner/users/biyang/dataset/KITTI/
+    # --data_path_low_res /cluster/work/riner/users/biyang/dataset/KITTI/
+    # --data_path_high_res /cluster/work/riner/users/biyang/dataset/KITTI/
+    --data_path_low_res /cluster/work/riner/users/biyang/dataset/SemanticKITTI/dataset/sequences/08/range_image64x1024/
+    --data_path_high_res /cluster/work/riner/users/biyang/dataset/SemanticKITTI/dataset/sequences/08/range_image64x1024/
     # --keep_close_scan
-    --save_pcd
+    # --save_pcd
     # WandB Parameters
-    --run_name Kitti64_1024_mcdrop:non_square_window2x8_withall_deepnetwork
+    --run_name Ours-L:evaluation_within_30_meters
     --entity biyang
     --wandb_disabled
     --project_name kitti_evaluation
+    # --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling/AblationStudies/non_square_window2x8_withall/
     --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling/AblationStudies/non_square_window2x8_withall_deepnetwork/
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048

@@ -33,7 +33,7 @@ jet = plt.get_cmap('viridis_r')
 scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=jet)
 
 
-def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 1024, save_pcd = True, grid_size = 0.1):
+def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 1024, save_pcd = True, grid_size = 0.1, downstream_task = False):
     # mae_evaluator = MAEEvaluator()
     # voxel_evaluator = VoxelIoUEvaluator(voxel_size=args.voxel_size, lidar=test_dataset.lidar_out)
 
@@ -44,7 +44,9 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 10
     total_cd = 0
 
 
-    indices = [188, 2054,496, 926 , 979,1120,1875, 666, 999, 888, 520, 1314, 2000, 688, 1, 10, 100, 777, 1111, 2222, 369, 796, 1000]
+    # indices = [188, 2054,496, 926 , 979,1120,1875, 666, 999, 888, 520, 1314, 2000, 688, 1, 10, 100, 777, 1111, 2222, 369, 796, 1000]
+    indices = None
+
 
     for packed_batches in tqdm(test_loader, leave=False, desc='test'):
 
@@ -54,7 +56,7 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 10
                 continue
         # input_range_image:    [N, 1, H_in, W_in]
         # output_ranges:        [N, H_out*W_out, 1]
-        input_range_image, output_ranges = packed_batches[0].cuda(), packed_batches[1].cuda()
+        input_range_image, output_ranges, name, intensity = packed_batches[0].cuda(), packed_batches[1].cuda(), packed_batches[2], packed_batches[3]
 
         # Prediction: input_range_image [N, 1, H_in, W_in] --> pred_ranges: [N, H_out*W_out, 1]
         with torch.no_grad():
@@ -96,8 +98,15 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 10
 
         mse_all = (np.absolute(pred - gt)).mean()
 
+        
+        if downstream_task:
+            pcd_pred = img_to_pcd_kitti(pred, maximum_range=test_dataset.lidar_out['norm_r'], intensity=intensity)
+            pcd_pred.astype(np.float32).tofile(os.path.join("/cluster/work/riner/users/biyang/dataset/kitti_localization/07/lsr64x1024/", name[0]))
+            continue
         pcd_pred = img_to_pcd_kitti(pred, maximum_range=test_dataset.lidar_out['norm_r'])
         pcd_gt = img_to_pcd_kitti(gt, maximum_range=test_dataset.lidar_out['norm_r'])
+
+        
 
 
         pcd_all = np.vstack((pcd_pred, pcd_gt))
@@ -179,7 +188,7 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 64, w_high = 10
 
 
 
-def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024, save_pcd = True, grid_size = 0.1):
+def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024, save_pcd = True, grid_size = 0.1, downstream_task = False):
     # mae_evaluator = MAEEvaluator()
     # voxel_evaluator = VoxelIoUEvaluator(voxel_size=args.voxel_size, lidar=test_dataset.lidar_out)
     global_step = 0
@@ -188,8 +197,8 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024,
     total_iou = 0
     total_cd = 0
 
-    indices = [188, 2054,496, 926 , 979,1120,1875, 666, 999, 888, 520, 1314, 2000, 688, 1, 10, 100, 777, 1111, 2222, 369, 796, 1000]
-    # indices = None
+    # indices = [188, 2054,496, 926 , 979,1120,1875, 666, 999, 888, 520, 1314, 2000, 688, 1, 10, 100, 777, 1111, 2222, 369, 796, 1000]
+    indices = None
     for packed_batches in tqdm(test_loader, leave=False, desc='test'):
 
         if indices is not None:
@@ -200,7 +209,7 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024,
         # input_range_image:    [N, 1, H_in, W_in]
         # input_queries:        [N, H_out*W_out, 2]
         # output_ranges:        [N, H_out*W_out, 1]
-        input_range_image, input_queries, output_ranges = packed_batches[0].cuda(), packed_batches[1].cuda(), packed_batches[2].cuda()
+        input_range_image, input_queries, output_ranges, name, intensity = packed_batches[0].cuda(), packed_batches[1].cuda(), packed_batches[2].cuda(), packed_batches[3], packed_batches[4]
 
         # Prediction: input_range_image [N, 1, H_in, W_in] --> pred_ranges: [N, H_out*W_out, 1]
         if input_range_image.shape[0] == 1 and pred_batch > 1:
@@ -246,6 +255,11 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024,
 
         mse_all = (np.absolute(pred - gt)).mean()
 
+        if downstream_task:
+            pcd_pred = img_to_pcd_kitti(pred, maximum_range=test_dataset.lidar_out['norm_r'], intensity=intensity)
+            pcd_pred.astype(np.float32).tofile(os.path.join("/cluster/work/riner/users/biyang/dataset/kitti_localization/07/iln64x1024/", name[0]))
+            continue
+
         pcd_pred = img_to_pcd_kitti(pred, maximum_range=120)
         pcd_gt = img_to_pcd_kitti(gt, maximum_range=120)
 
@@ -261,6 +275,8 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 64, w_high = 1024,
         voxel_grid_ground_truth = voxelize_point_cloud(pcd_gt, grid_size, min_coord, max_coord)
 
         iou, precision, recall = calculate_metrics(voxel_grid_predicted, voxel_grid_ground_truth)
+
+
 
 
         total_iou += iou
@@ -371,10 +387,15 @@ if __name__ == '__main__':
     # Generate dataset
     batch_size = args.batch
     test_dataset = generate_dataset(dataset_config)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
 
     # Model
     model = generate_model(check_point['model']['name'], check_point['model']['args'])
+    # pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    # print(f"There are totally {pytorch_total_params} parameters in the model")
+
+    # exit(0)
+
     model.load_state_dict(check_point['model']['state_dict'])
     num_of_gpus = torch.cuda.device_count()
     if torch.cuda.device_count() > 1:
@@ -392,6 +413,11 @@ if __name__ == '__main__':
                 # group="DDP" if num_of_gpus > 1 else "Single_GPU",)
 
     model.eval().cuda()
+
+
+    
+
+ 
 
     # Output directory
     output_directory = args.output_directory if args.output_directory is not None else os.path.dirname(args.checkpoint)
@@ -415,9 +441,11 @@ if __name__ == '__main__':
 
     # Evaluate the network
     if check_point['model']['name'].find('lsr') != -1:
-        test_pixel_based_network(output_path = args.output_directory, save_pcd = config['logger']['save_pcd'], grid_size=args.voxel_size)
+        test_pixel_based_network(output_path = args.output_directory, save_pcd = config['logger']['save_pcd'], 
+                                 grid_size=args.voxel_size, downstream_task = config['dataset']['args']['downstream_task'])
     else:
-        test_implicit_network(output_path = args.output_directory, save_pcd = config['logger']['save_pcd'], grid_size=args.voxel_size)
+        test_implicit_network(output_path = args.output_directory, save_pcd = config['logger']['save_pcd'], 
+                              grid_size=args.voxel_size, downstream_task = config['dataset']['args']['downstream_task'])
 
     # Report the evaluation result
     # if not os.path.isfile(eval_result_filename):

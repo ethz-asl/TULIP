@@ -20,5 +20,6 @@ logger:
   wandb_disabled: False
   project_name: "durlar_evaluation"
   entity: "biyang"
-  run_name: "iln:train_on_carla_test_on_durlar"
+  run_name: "iln:evaluation_within30m"
   save_pcd: False
+  keep_close_scan: True

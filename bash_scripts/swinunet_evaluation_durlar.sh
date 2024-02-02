@@ -18,8 +18,8 @@ args=(
     --eval
     # --evaluate_with_specific_indices
     --grid_size 0.1
-    # --mc_drop
-    # --noise_threshold 0.0005
+    --mc_drop
+    --noise_threshold 0.0005
     # --output_multidims
     # --edge_loss
     # --model_select swin_unet_moredepths
@@ -41,16 +41,18 @@ args=(
     --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_new
     # --data_path_low_res /cluster/work/riner/users/biyang/dataset/depth_intensity_large
     --data_path_high_res /cluster/work/riner/users/biyang/dataset/depth_intensity_new
-    # --keep_close_scan
+    --keep_close_scan
+    # --keep_far_scan
     # --save_pcd
     # WandB Parameters
     # --run_name p+c+g+swinv1_deeper+300epcohs+warmup40
-    --run_name Ours:train_on_carla
+    --run_name TULIP_normal:evaluation_within_30meters
     --entity biyang
     # --wandb_disabled
     --project_name durlar_evaluation
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_4/Baseline/
     # --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_4/non_square_window1x16_withall_deepnetwork/
-    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling/128_2048_baseline/
+    # --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling/128_2048_baseline/
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     # --img_size_low_res 32 2048
     --img_size_low_res 32 2048

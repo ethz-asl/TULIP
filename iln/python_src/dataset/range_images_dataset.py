@@ -8,7 +8,7 @@ from dataset.dataset_utils import *
 
 @register_dataset('range_images_kitti')
 class KittiDataset(Dataset):
-    def __init__(self, directory, high_res_path, low_res_path, res_out = "64_1024", res_in = "16_1024"):
+    def __init__(self, directory, high_res_path, low_res_path, res_out = "64_1024", res_in = "16_1024", downstream_task = False):
         """
         Constructor of dataset class (pair: input range image & output range image).
 
@@ -22,7 +22,7 @@ class KittiDataset(Dataset):
 
         # Dataset configurations
         self.dataset_directory = directory
-
+        self.downstream_task = downstream_task
         res_in = (res_in.split('_')[0], res_in.split('_')[1])
         res_out = (res_out.split('_')[0], res_out.split('_')[1])
 
@@ -40,14 +40,16 @@ class KittiDataset(Dataset):
         # self.output_range_image_filenames = []
 
 
-        self.input_filenames = [os.path.join(low_res_path, f) for f in os.listdir(low_res_path) if f.endswith('.npy')]
+        self.input_filenames = [os.path.join(low_res_path, f) for f in os.listdir(low_res_path) if f.endswith('.npy') or f.endswith('.bin')]
         self.input_filenames.sort()
 
 
-        self.output_filenames = [os.path.join(high_res_path, f) for f in os.listdir(high_res_path) if f.endswith('.npy')]
+        self.output_filenames = [os.path.join(high_res_path, f) for f in os.listdir(high_res_path) if f.endswith('.npy') or f.endswith('.bin')]
         self.output_filenames.sort()
 
         assert (len(self.input_filenames) == len(self.output_filenames))
+
+        
 
         # self.input_range_image_filenames.extend(input_filenames)
         # self.output_range_image_filenames.extend(output_filenames)
@@ -72,7 +74,9 @@ class KittiDataset(Dataset):
         # Read the pair of input and output range images
         input_range_image_filename = self.input_filenames[item]
         output_range_image_filename = self.output_filenames[item]
-        input_range_image = read_range_kitti(input_range_image_filename)
+        name = os.path.basename(input_range_image_filename)
+        
+        input_range_image = read_bin_kitti(input_range_image_filename) if self.downstream_task else read_range_kitti(input_range_image_filename)
         
         # Downsample from the high res image
         input_range_image = downsample_range_durlar(input_range_image, 
@@ -82,7 +86,18 @@ class KittiDataset(Dataset):
                                                           w_high_res=self.lidar_out['points_per_ring'],
                                                             downsample_factor=self.downsample_factor_w)
 
-        output_range_image = read_range_kitti(output_range_image_filename)
+        output_range_image = read_bin_kitti(output_range_image_filename) if self.downstream_task else read_range_kitti(output_range_image_filename)
+
+
+
+        if self.downstream_task:
+            intensity = output_range_image[..., 1]
+            output_range_image = output_range_image[..., 0]
+            input_range_image = input_range_image[..., 0]
+
+        else:
+            intensity = None
+
 
         output_range_image = output_range_image / self.lidar_out['norm_r']
         input_range_image = input_range_image / self.lidar_in['norm_r']
@@ -92,7 +107,7 @@ class KittiDataset(Dataset):
         input_range_image -= 1.0
         output_range_image *= 2.0
         output_range_image -= 1.0
-        return input_range_image[np.newaxis, :, :], output_range_image[np.newaxis, :, :]
+        return input_range_image[np.newaxis, :, :], output_range_image[np.newaxis, :, :], name, intensity
 
 
 @register_dataset('range_images_durlar')

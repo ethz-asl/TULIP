@@ -37,7 +37,7 @@ import copy
 from pathlib import Path
 
 IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff', '.webp', '.jpx')
-NPY_EXTENSIONS = ('.npy', '.rimg')
+NPY_EXTENSIONS = ('.npy', '.rimg', '.bin')
 
 
 
@@ -229,6 +229,12 @@ def npy_loader(path: str) -> np.ndarray:
         range_map = np.load(f)
     return range_map.astype(np.float32)
 
+def bin_loader(path: str) -> np.ndarray:
+    with open(path, "rb") as f:
+        range_intensity_map = np.fromfile(f, dtype=np.float32).reshape(64, 1024, 2)
+        # range_map = range_intensity_map[..., 0]
+    return range_intensity_map
+
 def npy_loader_without_intensity(path: str) -> np.ndarray:
     with open(path, "rb") as f:
         range_intensity_map = np.load(f)
@@ -264,6 +270,7 @@ class RangeMapFolder(DatasetFolder):
         loader: Callable[[str], Any] = npy_loader,
         is_valid_file: Optional[Callable[[str], bool]] = None,
         class_dir: bool = True,
+        downstream_task: bool = False,
     ):
         self.class_dir = class_dir
         super().__init__(
@@ -275,6 +282,7 @@ class RangeMapFolder(DatasetFolder):
             is_valid_file=is_valid_file,
         )
         self.imgs = self.samples
+        self.downstream_task = downstream_task
         
 
     def find_classes(self, directory: str) -> Tuple[List[str], Dict[str, int]]:
@@ -282,6 +290,31 @@ class RangeMapFolder(DatasetFolder):
             return super().find_classes(directory)    
         else:
             return [""], {"":0}
+    
+    def __getitem__(self, index: int) -> Dict[str, Any]:
+        """
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (sample, target) where target is class_index of the target class.
+        """
+        path, target = self.samples[index]
+        sample = self.loader(path)
+        name = os.path.basename(path)
+        if self.transform is not None:
+            sample = self.transform(sample)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        if self.downstream_task:
+            return {'sample': sample[None, 0, ...],
+                    'class':target,
+                    'name': name,
+                    'intensity': sample[None, 1, ...]}
+        return {'sample': sample,
+                'class':target,
+                'name': name}
 
 
 def build_durlar_upsampling_dataset(is_train, args):
@@ -293,15 +326,17 @@ def build_durlar_upsampling_dataset(is_train, args):
 
     t_low_res.append(DownsampleTensor(h_high_res=output_size[0], downsample_factor=output_size[0]//input_size[0]))
 
-    if args.keep_close_scan and args.keep_far_scan:
-        print("Cannot mask out far and close pixels at the same time, please check the arguments")
-    if args.keep_far_scan:
-        t_low_res.append(KeepFarScan(min_dist=50/200))
-        t_high_res.append(KeepFarScan(max_dist=50/200))
-    if args.keep_close_scan:
-        # Max Distance as 50 m
-        t_low_res.append(KeepCloseScan(max_dist=30/200))
-        t_high_res.append(KeepCloseScan(max_dist=30/200))
+    # if args.keep_close_scan and args.keep_far_scan:
+    #     print("Cannot mask out far and close pixels at the same time, please check the arguments")
+    # if args.keep_far_scan:
+    #     print("The points within 30 m are removed from the range map")
+    #     t_low_res.append(KeepFarScan(min_dist=30/120))
+    #     t_high_res.append(KeepFarScan(min_dist=30/120))
+    # if args.keep_close_scan:
+    #     # Max Distance as 50 m
+    #     print("The points out of 30 m are removed from the range map")
+    #     t_low_res.append(KeepCloseScan(max_dist=30/120))
+    #     t_high_res.append(KeepCloseScan(max_dist=30/120))
 
     if args.crop:
         t_low_res.append(transforms.CenterCrop(args.img_size_low_res))
@@ -327,8 +362,8 @@ def build_durlar_upsampling_dataset(is_train, args):
     root_high_res = os.path.join(args.data_path_high_res, 'train' if is_train else 'val')
     root_high_res = os.path.join(root_high_res, 'depth')
 
-    dataset_low_res = RangeMapFolder(root_low_res, transform = transform_low_res, loader=npy_loader)
-    dataset_high_res = RangeMapFolder(root_high_res, transform = transform_high_res, loader = npy_loader)
+    dataset_low_res = RangeMapFolder(root_low_res, transform = transform_low_res, loader= npy_loader)
+    dataset_high_res = RangeMapFolder(root_high_res, transform = transform_high_res, loader =  npy_loader)
 
 
     assert len(dataset_high_res) == len(dataset_low_res)
@@ -343,6 +378,7 @@ def build_kitti_pretraining_dataset(is_train, args):
     if input_size[0] == 16 and args.in_chans == 4:
         t.append(DepthwiseConcatenation(h_high_res=64, downsample_factor=4))
 
+    
     if args.log_transform:
         t.append(LogTransform())
     transform = transforms.Compose(t)
@@ -372,17 +408,23 @@ def build_kitti_upsampling_dataset(is_train, args):
     transform_low_res = transforms.Compose(t_low_res)
     transform_high_res = transforms.Compose(t_high_res)        
 
-    root_low_res = os.path.join(args.data_path_low_res, 'train20000' if is_train else 'val')
+    if args.downstream_task:
+        root_low_res = args.data_path_low_res
+        root_high_res = args.data_path_high_res
 
-    root_high_res = os.path.join(args.data_path_high_res, 'train20000' if is_train else 'val')
+    else:
+        root_low_res = os.path.join(args.data_path_low_res, 'train20000' if is_train else 'val')
+        root_high_res = os.path.join(args.data_path_high_res, 'train20000' if is_train else 'val')
 
     # root_low_res = os.path.join(args.data_path_low_res, 'train200000' if is_train else 'val')
 
     # root_high_res = os.path.join(args.data_path_high_res, 'train200000' if is_train else 'val')
 
 
-    dataset_low_res = RangeMapFolder(root_low_res, transform = transform_low_res, loader=npy_loader_without_intensity, class_dir = False)
-    dataset_high_res = RangeMapFolder(root_high_res, transform = transform_high_res, loader = npy_loader_without_intensity, class_dir = False)
+    dataset_low_res = RangeMapFolder(root_low_res, transform = transform_low_res, loader=bin_loader if args.downstream_task else npy_loader_without_intensity, 
+                                     class_dir = False, downstream_task=args.downstream_task)
+    dataset_high_res = RangeMapFolder(root_high_res, transform = transform_high_res, loader = bin_loader if args.downstream_task else npy_loader_without_intensity, 
+                                      class_dir = False, downstream_task=args.downstream_task)
 
     assert len(dataset_high_res) == len(dataset_low_res)
 

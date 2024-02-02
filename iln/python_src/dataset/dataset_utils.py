@@ -28,6 +28,12 @@ def read_range_kitti(filename):
 
     return range_map.astype(np.float32)
 
+def read_bin_kitti(filename):
+    with open(filename, "rb") as f:
+        range_intensity_map = np.fromfile(f, dtype=np.float32).reshape(64, 1024, 2)
+        # range_map = range_intensity_map[..., 0]
+    return range_intensity_map
+
 def read_range_durlar(filename, dtype=np.float16, lidar=None):
     """
     Read a range image from a binary file.

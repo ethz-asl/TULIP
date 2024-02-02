@@ -34,7 +34,7 @@ jet = plt.get_cmap('viridis_r')
 scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=jet)
 
 
-def test_pixel_based_network(output_path, pred_batch=1, h_high = 128, w_high = 2048, save_pcd = True, grid_size = 0.1):
+def test_pixel_based_network(output_path, pred_batch=1, h_high = 128, w_high = 2048, save_pcd = True, grid_size = 0.1, keep_close_scan = False):
     # mae_evaluator = MAEEvaluator()
     # voxel_evaluator = VoxelIoUEvaluator(voxel_size=args.voxel_size, lidar=test_dataset.lidar_out)
 
@@ -92,6 +92,10 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 128, w_high = 2
         loss_low_res_part = loss_low_res_part.mean()
 
         mse_all = (np.absolute(pred - gt)).mean()
+
+        if keep_close_scan:
+            pred[pred > 0.25] = 0
+            gt[gt > 0.25] = 0 
 
         pcd_pred = img_to_pcd(pred, maximum_range=120)
         pcd_gt = img_to_pcd(gt, maximum_range=120)
@@ -177,7 +181,7 @@ def test_pixel_based_network(output_path, pred_batch=1, h_high = 128, w_high = 2
 
 
 
-def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048, save_pcd = True, grid_size = 0.1):
+def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048, save_pcd = True, grid_size = 0.1, keep_close_scan = False):
     # mae_evaluator = MAEEvaluator()
     # voxel_evaluator = VoxelIoUEvaluator(voxel_size=args.voxel_size, lidar=test_dataset.lidar_out)
     global_step = 0
@@ -237,6 +241,10 @@ def test_implicit_network(output_path, pred_batch=1, h_high = 128, w_high = 2048
         loss_low_res_part = loss_low_res_part.mean()
 
         mse_all = (np.absolute(pred - gt)).mean()
+
+        if keep_close_scan:
+            pred[pred > 0.25] = 0
+            gt[gt > 0.25] = 0 
 
         pcd_pred = img_to_pcd(pred, maximum_range=120)
         pcd_gt = img_to_pcd(gt, maximum_range=120)
@@ -386,6 +394,9 @@ if __name__ == '__main__':
                 # group="DDP" if num_of_gpus > 1 else "Single_GPU",)
 
     model.eval().cuda()
+    pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"There are totally {pytorch_total_params} parameters in the model")
+    exit(0)
 
     # Output directory
     output_directory = args.output_directory if args.output_directory is not None else os.path.dirname(args.checkpoint)
@@ -409,9 +420,9 @@ if __name__ == '__main__':
 
     # Evaluate the network
     if check_point['model']['name'].find('lsr') != -1:
-        test_pixel_based_network(output_path = args.output_directory, save_pcd = config['logger']['save_pcd'], grid_size=args.voxel_size)
+        test_pixel_based_network(output_path = args.output_directory, save_pcd = config['logger']['save_pcd'], grid_size=args.voxel_size, keep_close_scan = config['logger']['keep_close_scan'])
     else:
-        test_implicit_network(output_path = args.output_directory, save_pcd = config['logger']['save_pcd'], grid_size=args.voxel_size)
+        test_implicit_network(output_path = args.output_directory, save_pcd = config['logger']['save_pcd'], grid_size=args.voxel_size, keep_close_scan = config['logger']['keep_close_scan'])
 
     # Report the evaluation result
     # if not os.path.isfile(eval_result_filename):
