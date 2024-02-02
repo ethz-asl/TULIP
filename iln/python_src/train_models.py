@@ -171,14 +171,14 @@ if __name__ == '__main__':
     batch_size = args.batch
     train_dataset = generate_dataset(config['dataset'])
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=8)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4)
 
     model = generate_model(config['model']['name'], config['model']['args']).train()
     optimizer = optim.Adam(params=list(model.parameters()), lr=1e-4)
     lr_scheduler = MultiStepLR(optimizer, milestones=[200, 400, 600, 800], gamma=0.5)
     criterion = nn.L1Loss()
     epoch_start = 0
-    epoch_end = 1000
+    epoch_end = 400
     # epoch_end = 1
 
     # Load a valid check point
@@ -205,7 +205,7 @@ if __name__ == '__main__':
                 entity=config['logger']['entity'],
                 name = config['logger']['run_name'], 
                 mode=mode,
-                group="DDP" if n_gpus > 1 else "Single_GPU",)
+                group=config['logger']['group_name'],)
 
     model.cuda()
 
@@ -225,9 +225,9 @@ if __name__ == '__main__':
     print("===============================================================  \n")
 
     # NOTE: The training approaches are different according to the type of network structure
-    if config['dataset']['type'] == 'range_images':
+    if config['dataset']['type'] in ['range_images', 'range_images_durlar', 'range_images_kitti']:
         train_pixel_based_network()
-    elif config['dataset']['type'] == 'range_samples_from_image' or config['dataset']['type'] == 'range_samples_from_durlar':
+    elif config['dataset']['type'] in ['range_samples_from_image', 'range_samples_from_durlar', 'range_samples_from_kitti']:
         train_implicit_network()
 
 

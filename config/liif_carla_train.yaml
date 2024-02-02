@@ -1,0 +1,34 @@
+dataset:
+  name: Carla
+  type: range_samples_from_image
+  args:
+    directory: ./dataset/Carla
+    scene_ids:
+      - Town01
+      - Town02
+      - Town03
+      - Town04
+      - Town05
+      - Town06
+    res_in: '32_2048'
+    res_out: '128_2048'
+    num_of_samples: 65536
+    memory_fetch: false
+
+model:
+  name: liif_lidar
+  output: /cluster/work/riner/users/biyang/experiment/carla/liif/
+  args:
+    local_ensemble: true
+    feat_unfold: false
+    cell_decode: false
+
+logger:
+  wandb_disabled: False
+  # evaluation = False
+  # save_pcd = False
+  # project_name = "lidar_sr_network"
+  project_name: 'sota_carla'
+  entity: "biyang"
+  run_name: "liif"
+  group_name: "liif"

@@ -1,5 +1,4 @@
-import torch
-import trimesh
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
@@ -78,13 +77,15 @@ def main(args):
             images_fullpath = glob(images_path + "/*")
             for image_fullpath in images_fullpath:
                 image_name = os.path.basename(image_fullpath)
-                high_res_image = cv2.imread(image_fullpath, cv2.IMREAD_GRAYSCALE)
+                # high_res_image = cv2.imread(image_fullpath, cv2.IMREAD_GRAYSCALE)
+                high_res_image = np.load(image_fullpath)
                 h, _, = high_res_image.shape
 
                 low_res_index = range(0, h, downsampling_factor)
                 low_res_image = high_res_image[low_res_index, :]
                 # print(low_res_image.shape)
-                cv2.imwrite(os.path.join(outputdir_modality, image_name), low_res_image)
+                # cv2.imwrite(os.path.join(outputdir_modality, image_name), low_res_image)
+                np.save(os.path.join(outputdir_modality, image_name), low_res_image.astype(np.float32))
 
     print("Done")
 

@@ -30,8 +30,12 @@ def read_args():
 
     parser.add_argument("--rows", type = int, default = 128)
     parser.add_argument("--cols", type = int, default = 2048)
+    parser.add_argument("--max_range", type = int, default = 128)
     parser.add_argument("--color", action="store_true", help="Use colormap to map the depth value to rgb channel")
     parser.add_argument("--normalize", action="store_true", help="Normalize range map with LiDAR max range")
+
+
+    parser.add_argument('--range', nargs="+", type=int, help='start and end frame number')
 
    
     return parser.parse_args()
@@ -109,9 +113,10 @@ def read_args():
 #     return pcd
 
 # Ouster Maximum Range
-max_range_durlar = 200
+
 
 flags = read_args()
+max_range_durlar = flags.max_range
 if flags.color:
     cNorm = colors.Normalize(vmin=0, vmax=max_range_durlar)
     jet = plt.get_cmap('magma')
@@ -133,8 +138,9 @@ for path in output_folders:
 
 files = os.listdir(ouster_points_path)
 files.sort()
+start_frame, end_frame = tuple(flags.range)
 for i, bin_filepath in enumerate(files):
-    if i <= 40000:
+    if i <= start_frame or i > end_frame:
         continue
     # if i > 42000:
     #     break
@@ -151,9 +157,9 @@ for i, bin_filepath in enumerate(files):
 
 
     if flags.normalize:
-        range_map = (range_map/200) * 255
+        range_map = range_map/max_range_durlar
 
-    output_name = bin_filepath.replace(".bin", ".png")
+    output_name = bin_filepath.replace(".bin", ".npy")
     if flags.color:
         # cNorm = colors.Normalize(vmin=np.min(range_map), vmax=np.max(range_map))
         # jet = plt.get_cmap('jet')
@@ -162,8 +168,11 @@ for i, bin_filepath in enumerate(files):
         range_map_colored = scalarMap.to_rgba(range_map)[...,:3]*255
         cv2.imwrite(os.path.join(depth_colored_output, output_name), range_map_colored)
     
-    cv2.imwrite(os.path.join(intensity_output, output_name), intensity)
-    cv2.imwrite(os.path.join(depth_output, output_name), range_map)
+
+    np.save(os.path.join(intensity_output, output_name), intensity)
+    np.save(os.path.join(depth_output, output_name), range_map)
+    # cv2.imwrite(os.path.join(intensity_output, output_name), intensity)
+    # cv2.imwrite(os.path.join(depth_output, output_name), range_map)
 
 print("Done")
 

@@ -1,0 +1,29 @@
+dataset:
+  name: Carla
+  type: range_images
+  args:
+    directory: /cluster/work/riner/users/biyang/dataset/Carla/
+    scene_ids:
+      - Town01
+      - Town02
+      - Town03
+      - Town04
+      - Town05
+      - Town06
+    res_in: '16_1024'
+    res_out: '128_2048'
+    memory_fetch: false
+
+model:
+  name: lsr
+  output: /cluster/work/riner/users/biyang/experiment/x16_upsampling/lsr/
+  args:
+    scale_h: 8
+    scale_w: 2
+
+logger:
+  wandb_disabled: False
+  project_name: "carla_evaluation"
+  entity: "biyang"
+  run_name: "lsr_16x1024_128x2048"
+  save_pcd: True

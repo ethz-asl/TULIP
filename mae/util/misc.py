@@ -20,6 +20,8 @@ import torch
 import torch.distributed as dist
 from torch._six import inf
 
+import itertools
+
 
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a
@@ -213,6 +215,41 @@ def save_on_master(*args, **kwargs):
         torch.save(*args, **kwargs)
 
 
+def initialize_decoder_weights(pretrain_model):
+
+    for k in list(pretrain_model.keys()):
+        if k.__contains__('layers.0'):
+            new_key = k.replace('layers.0', 'layers_up.2')
+            new_key = new_key.replace('downsample', 'upsample') if new_key.__contains__('downsample') else new_key
+            pretrain_model[k] = pretrain_model[new_key]
+            del pretrain_model[new_key]
+        if k.__contains__('layers.1'):
+            new_key = k.replace('layers.1', 'layers_up.1')
+            new_key = new_key.replace('downsample', 'upsample') if new_key.__contains__('downsample') else new_key
+            pretrain_model[k] = pretrain_model[new_key]
+            del pretrain_model[new_key]
+
+        if k.__contains__('layers.2'):
+            new_key = k.replace('layers.2', 'layers_up.0')
+            new_key = new_key.replace('downsample', 'upsample') if new_key.__contains__('downsample') else new_key
+            pretrain_model[k] = pretrain_model[new_key]
+            del pretrain_model[new_key]
+
+    for k in list(pretrain_model.keys()):
+        if k.__contains__('head') or \
+            k.__contains__('decoder_pred') or \
+            k.__contains__('skip_connection') or \
+            k.__contains__('first_patch_expanding') or \
+            k.__contains__('output_weights') or \
+            k.__contains__('up'):
+            print(f"Removing key {k} from pretrained checkpoint")
+            del pretrain_model[k]
+
+    print(pretrain_model.keys())
+    return pretrain_model
+
+
+
 def init_distributed_mode(args):
     if args.dist_on_itp:
         args.rank = int(os.environ['OMPI_COMM_WORLD_RANK'])
@@ -312,6 +349,15 @@ def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler):
         model.save_checkpoint(save_dir=args.output_dir, tag="checkpoint-%s" % epoch_name, client_state=client_state)
 
 
+def check_match(a, b):
+    if type(a) == int and type(b) == int:
+        return a == b
+    elif type(a) == int or type(b) == int:
+        return False
+    else:
+        return a.shape == b.shape
+
+
 def load_model(args, model_without_ddp, optimizer, loss_scaler):
     if args.resume:
         if args.resume.startswith('https'):
@@ -319,10 +365,105 @@ def load_model(args, model_without_ddp, optimizer, loss_scaler):
                 args.resume, map_location='cpu', check_hash=True)
         else:
             checkpoint = torch.load(args.resume, map_location='cpu')
+        # have to change some name in the pretrain weights, can be removed in the further experiments
+        model_checkpoint = checkpoint['model']
+        for k in list(model_checkpoint.keys()):
+            if k == 'head.weight':
+                model_checkpoint['decoder_pred.weight'] = model_checkpoint['head.weight']
+                del model_checkpoint['head.weight']
+            elif k == 'pixel_shuffle_layer.conv_expand.0.weight':
+                model_checkpoint['ps_head.conv_expand.0.weight'] = model_checkpoint['pixel_shuffle_layer.conv_expand.0.weight']
+                del model_checkpoint['pixel_shuffle_layer.conv_expand.0.weight']
+            elif k == 'pixel_shuffle_layer.conv_expand.0.bias':
+                model_checkpoint['ps_head.conv_expand.0.bias'] = model_checkpoint['pixel_shuffle_layer.conv_expand.0.bias']
+                del model_checkpoint['pixel_shuffle_layer.conv_expand.0.bias']
+
+        
         model_without_ddp.load_state_dict(checkpoint['model'])
         print("Resume checkpoint %s" % args.resume)
-        if 'optimizer' in checkpoint and 'epoch' in checkpoint and not (hasattr(args, 'eval') and args.eval):
-            optimizer.load_state_dict(checkpoint['optimizer'])
+        if 'optimizer' in checkpoint and 'epoch' in checkpoint and not (hasattr(args, 'eval') and args.eval) and not (hasattr(args, 'analyze') and args.analyze) :
+            
+            saved_optimizer_state_dict = checkpoint['optimizer']
+
+            # print(optimizer.param_groups[0]['params'])
+
+            # print(optimizer.state.keys())
+
+            current_group_all_params = list(optimizer.param_groups[0]['params']) + list(optimizer.param_groups[0]['params'])
+
+            for saved_state, current_state in zip(saved_optimizer_state_dict['state'], current_group_all_params):
+                
+                # print(saved_optimizer_state_dict['state'][saved_state]['exp_avg'].shape, 
+                #       current_state.shape)
+                pass
+            # print(saved_optimizer_state_dict['state'].keys())
+
+            # # saved_optimizer_state_dict['param_groups'].reverse()
+            # params_sub1 = saved_optimizer_state_dict['param_groups'][0]['params']
+            # params_sub2 = saved_optimizer_state_dict['param_groups'][1]['params']
+
+            # print(saved_optimizer_state_dict['param_groups'][0]['params'])
+            # print(saved_optimizer_state_dict['param_groups'][1].keys())
+
+            # for key in saved_optimizer_state_dict['param_groups'][0].keys():
+            #     print(key)
+            #     print(saved_optimizer_state_dict['param_groups'][0][key])
+
+
+            # print(saved_optimizer_state_dict['param_groups']
+
+            # all_params_group = []
+            # for param_group in saved_optimizer_state_dict['param_groups']:
+            #     all_params_group.extend(param_group)
+
+
+            # sub_group_1 = []
+            # sub_group_2 = []
+
+            # sub_group_1.append(param_group for i, param_group in enumerate(all_params_group) if i < 130)
+            # sub_group_2.append(param_group for i, param_group in enumerate(all_params_group) if i >= 130)
+
+
+            # saved_optimizer_state_dict['param_groups'][0] = sub_group_1
+            # saved_optimizer_state_dict['param_groups'][1] = sub_group_2
+            # print(optimizer.param_groups[0]['params'][81])
+            # saved_scaler = checkpoint['scaler']
+
+            # print(saved_scaler.keys())
+
+            # print(saved_scaler['scale'], loss_scaler.state_dict()['scale'])
+            # print(saved_scaler['growth_factor'], loss_scaler.state_dict()['growth_factor'])
+            # print(saved_scaler['backoff_factor'], loss_scaler.state_dict()['backoff_factor'])
+            # print(saved_scaler['growth_interval'], loss_scaler.state_dict()['growth_interval'])
+            # print(saved_scaler['_growth_tracker'], loss_scaler.state_dict()['_growth_tracker'])
+
+
+
+            # # Check and filter state (like momentum, RMS, etc.)
+            # for param_tensor in saved_optimizer_state_dict['state']:
+            #     if param_tensor in list(model_without_ddp.parameters()):
+            #         filtered_optimizer_state_dict['state'][param_tensor] = saved_optimizer_state_dict['state'][param_tensor]
+
+            # Check and filter parameter groups
+
+            num_params = []
+            total_params = 0
+
+            for current_group in optimizer.param_groups:
+                num_params.append((total_params, total_params + len(current_group['params'])))
+                total_params += len(current_group['params'])
+
+            for i in range(len(num_params)):
+                num_params[i] = (-(num_params[i][0] - total_params) - 1 , -(num_params[i][1] - total_params) - 1)
+
+
+            # for saved_group, num_params_range in zip(saved_optimizer_state_dict['param_groups'], num_params):
+            #     saved_group['params'] = [x for x in range(num_params_range[0], num_params_range[1], -1)]
+
+            #     print(saved_group['params'] )
+
+
+            optimizer.load_state_dict(saved_optimizer_state_dict)
             args.start_epoch = checkpoint['epoch'] + 1
             if 'scaler' in checkpoint:
                 loss_scaler.load_state_dict(checkpoint['scaler'])

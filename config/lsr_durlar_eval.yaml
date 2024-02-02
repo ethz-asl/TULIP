@@ -1,0 +1,25 @@
+dataset:
+  name: Durlar
+  type: range_images_durlar
+  args:
+    directory: /cluster/work/riner/users/biyang/iln/samples/
+    high_res_path: /cluster/work/riner/users/biyang/dataset/depth_intensity_new/val/depth/all/
+    low_res_path: /cluster/work/riner/users/biyang/dataset/depth_intensity_new/val/depth/all/
+    # res_in: '16_1024'
+    # res_out: '128_2048'
+    # num_of_samples: 65536
+
+model:
+  name: lsr
+  output: /cluster/work/riner/users/biyang/experiment/durlar/lsr/
+  args:
+    scale_h: 4
+    scale_w: 1
+
+logger:
+  wandb_disabled: False
+  project_name: "durlar_evaluation"
+  entity: "biyang"
+  run_name: "lsr:evaluation_within30m"
+  save_pcd: False
+  keep_close_scan: True

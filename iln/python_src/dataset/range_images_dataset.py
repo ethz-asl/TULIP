@@ -4,7 +4,110 @@ from torch.utils.data import Dataset
 import numpy as np
 import os
 
-from dataset.dataset_utils import register_dataset, read_range_image_binary, initialize_lidar, read_range_durlar
+from dataset.dataset_utils import *
+
+@register_dataset('range_images_kitti')
+class KittiDataset(Dataset):
+    def __init__(self, directory, high_res_path, low_res_path, res_out = "64_1024", res_in = "16_1024", downstream_task = False):
+        """
+        Constructor of dataset class (pair: input range image & output range image).
+
+        :param directory: directory of dataset
+        :param scene_ids: scene IDs of dataset
+        :param res_in: input resolution of range image
+        :param res_out: output resolution of range image
+        :param memory_fetch: on/off for fetching all the data into memory storage
+        """
+        super(KittiDataset, self).__init__()
+
+        # Dataset configurations
+        self.dataset_directory = directory
+        self.downstream_task = downstream_task
+        res_in = (res_in.split('_')[0], res_in.split('_')[1])
+        res_out = (res_out.split('_')[0], res_out.split('_')[1])
+
+        # Read the LiDAR configurations
+        lidar_config_filename = os.path.join(directory, 'kitti.yaml')
+        self.lidar_in = initialize_lidar(lidar_config_filename, channels=int(res_in[0]), points_per_ring=int(res_in[1]))
+        self.lidar_out = initialize_lidar(lidar_config_filename, channels=int(res_out[0]), points_per_ring=int(res_out[1]))
+
+
+        self.downsample_factor_h = self.lidar_out['channels'] // self.lidar_in['channels']
+        self.downsample_factor_w = self.lidar_out['points_per_ring'] // self.lidar_in['points_per_ring']
+
+        # Read all the filenames
+        # self.input_range_image_filenames = []
+        # self.output_range_image_filenames = []
+
+
+        self.input_filenames = [os.path.join(low_res_path, f) for f in os.listdir(low_res_path) if f.endswith('.npy') or f.endswith('.bin')]
+        self.input_filenames.sort()
+
+
+        self.output_filenames = [os.path.join(high_res_path, f) for f in os.listdir(high_res_path) if f.endswith('.npy') or f.endswith('.bin')]
+        self.output_filenames.sort()
+
+        assert (len(self.input_filenames) == len(self.output_filenames))
+
+        
+
+        # self.input_range_image_filenames.extend(input_filenames)
+        # self.output_range_image_filenames.extend(output_filenames)
+
+
+    def __len__(self):
+        """
+        Get the number of range image pairs (dataset size).
+
+        :return dataset size
+        """
+        return len(self.output_filenames)
+
+    def __getitem__(self, item):
+        """
+        Get a pair of input and output range images assigned to an index.
+
+        :param item: index of pair
+        :return normalized range image pair
+        """
+
+        # Read the pair of input and output range images
+        input_range_image_filename = self.input_filenames[item]
+        output_range_image_filename = self.output_filenames[item]
+        name = os.path.basename(input_range_image_filename)
+        
+        input_range_image = read_bin_kitti(input_range_image_filename) if self.downstream_task else read_range_kitti(input_range_image_filename)
+        
+        # Downsample from the high res image
+        input_range_image = downsample_range_durlar(input_range_image, 
+                                                    h_high_res=self.lidar_out['channels'], 
+                                                    downsample_factor=self.downsample_factor_h)
+        input_range_image = downsample_range_durlar_width(input_range_image,
+                                                          w_high_res=self.lidar_out['points_per_ring'],
+                                                            downsample_factor=self.downsample_factor_w)
+
+        output_range_image = read_bin_kitti(output_range_image_filename) if self.downstream_task else read_range_kitti(output_range_image_filename)
+
+
+
+        if self.downstream_task:
+            intensity = output_range_image[..., 1]
+            output_range_image = output_range_image[..., 0]
+            input_range_image = input_range_image[..., 0]
+
+        else:
+            intensity = None
+
+
+        output_range_image = output_range_image / self.lidar_out['norm_r']
+        input_range_image = input_range_image / self.lidar_in['norm_r']
+
+        # Normalization ([0, 1] -> [-1, 1])
+        input_range_image *= 2.0
+        input_range_image -= 1.0
+        output_range_image *= 2.0
+        output_range_image -= 1.0
+        return input_range_image[np.newaxis, :, :], output_range_image[np.newaxis, :, :], name, intensity
 
 
 @register_dataset('range_images_durlar')
@@ -34,12 +137,11 @@ class DurlarDataset(Dataset):
         # self.output_range_image_filenames = []
 
 
-
-        self.input_filenames = [os.path.join(low_res_path, f) for f in os.listdir(low_res_path) if f.endswith('.png')]
+        self.input_filenames = [os.path.join(low_res_path, f) for f in os.listdir(low_res_path) if f.endswith('.npy')]
         self.input_filenames.sort()
 
 
-        self.output_filenames = [os.path.join(high_res_path, f) for f in os.listdir(high_res_path) if f.endswith('.png')]
+        self.output_filenames = [os.path.join(high_res_path, f) for f in os.listdir(high_res_path) if f.endswith('.npy')]
         self.output_filenames.sort()
 
         assert (len(self.input_filenames) == len(self.output_filenames))
@@ -68,15 +170,22 @@ class DurlarDataset(Dataset):
         input_range_image_filename = self.input_filenames[item]
         output_range_image_filename = self.output_filenames[item]
         input_range_image = read_range_durlar(input_range_image_filename)
+        
+        # Downsample from the high res image
+        input_range_image = downsample_range_durlar(input_range_image, 
+                                                    h_high_res=self.lidar_out['channels'], 
+                                                    downsample_factor=self.lidar_out['channels'] // self.lidar_in['channels'])
+
         output_range_image = read_range_durlar(output_range_image_filename)
 
         # Crop the values out of the detection range
-        # input_range_image[input_range_image < 10e-10] = self.lidar_in['norm_r']
-        # input_range_image[input_range_image < self.lidar_in['min_r']] = 0.0
-        # input_range_image[input_range_image > self.lidar_in['max_r']] = self.lidar_in['norm_r']
-        # output_range_image[output_range_image < 10e-10] = self.lidar_out['norm_r']
-        # output_range_image[output_range_image < self.lidar_out['min_r']] = 0.0
-        # output_range_image[output_range_image > self.lidar_out['max_r']] = self.lidar_out['norm_r']
+        input_range_image[input_range_image < 10e-10] = self.lidar_in['norm_r']
+        input_range_image[input_range_image < self.lidar_in['min_r'] / self.lidar_in['max_r']] = 0.0
+        input_range_image[input_range_image > self.lidar_in['max_r'] / self.lidar_in['max_r']] = self.lidar_in['norm_r']
+        output_range_image[output_range_image < 10e-10] = self.lidar_out['norm_r']
+        output_range_image[output_range_image < self.lidar_out['min_r'] / self.lidar_in['max_r']] = 0.0
+        output_range_image[output_range_image > self.lidar_out['max_r'] / self.lidar_in['max_r']] = self.lidar_out['norm_r']
+
 
         # Normalization ([0, 1] -> [-1, 1])
         input_range_image *= 2.0
@@ -119,15 +228,25 @@ class RangeImagesDataset(Dataset):
         self.input_range_image_filenames = []
         self.output_range_image_filenames = []
 
+
+        availbale_data = os.listdir(os.path.join(directory, scene_ids[0]))
+        self.INPUT_AVAILABLE = res_in in availbale_data
+
+        
+
         for scene_id in scene_ids:
-            input_directory = os.path.join(directory, scene_id, res_in)
-            input_filenames = [os.path.join(input_directory, f) for f in os.listdir(input_directory) if f.endswith('.rimg')]
-            input_filenames.sort()
+            
 
             output_directory = os.path.join(directory, scene_id, res_out)
             output_filenames = [os.path.join(output_directory, f) for f in os.listdir(output_directory) if f.endswith('.rimg')]
             output_filenames.sort()
 
+            if self.INPUT_AVAILABLE:
+                input_directory = os.path.join(directory, scene_id, res_in)
+                input_filenames = [os.path.join(input_directory, f) for f in os.listdir(input_directory) if f.endswith('.rimg')]
+                input_filenames.sort()
+            else:
+                input_filenames = output_filenames
             assert (len(input_filenames) == len(output_filenames))
 
             self.input_range_image_filenames.extend(input_filenames)
@@ -168,6 +287,7 @@ class RangeImagesDataset(Dataset):
         :param item: index of pair
         :return normalized range image pair
         """
+
         if self.memory_fetch:
             # Read the pair of input and output range images (normalized)
             input_range_image = self.range_image_pairs[item, :self.pair_split_idx].reshape(self.lidar_in['channels'], self.lidar_in['points_per_ring'])
@@ -177,7 +297,12 @@ class RangeImagesDataset(Dataset):
             # Read the pair of input and output range images
             input_range_image_filename = self.input_range_image_filenames[item]
             output_range_image_filename = self.output_range_image_filenames[item]
-            input_range_image = read_range_image_binary(input_range_image_filename)
+
+            if self.INPUT_AVAILABLE:
+                input_range_image = read_range_image_binary(input_range_image_filename)
+            else:
+                input_range_image = read_and_downsample_range_image_binary(input_range_image_filename, 
+                                                                           downsample_factor=int(self.res_out.split('_')[0]) // int(self.res_in.split('_')[0]))
             output_range_image = read_range_image_binary(output_range_image_filename)
 
             # Crop the values out of the detection range

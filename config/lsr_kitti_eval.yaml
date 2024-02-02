@@ -1,0 +1,29 @@
+dataset:
+  name: Kitti
+  type: range_images_kitti
+  args:
+    directory: /cluster/work/riner/users/biyang/iln/samples/
+    # high_res_path: /cluster/work/riner/users/biyang/dataset/KITTI/val
+    # low_res_path: /cluster/work/riner/users/biyang/dataset/KITTI/val
+    high_res_path: /cluster/work/riner/users/biyang/dataset/kitti_localization/07/range_image64x1024/
+    low_res_path: /cluster/work/riner/users/biyang/dataset/kitti_localization/07/range_image64x1024/
+    # res_in: '32_2048'
+    # res_out: '128_2048'
+    downstream_task: True
+
+model:
+  name: lsr
+  output: /cluster/work/riner/users/biyang/experiment/kitti/lsr/
+  args:
+    scale_h: 4
+    scale_w: 1
+
+logger:
+  wandb_disabled: True
+  # evaluation = False
+  # save_pcd = False
+  # project_name = "lidar_sr_network"
+  project_name: 'kitti_evaluation'
+  entity: "biyang"
+  run_name: "lsr:within30meters"
+  save_pcd: False
