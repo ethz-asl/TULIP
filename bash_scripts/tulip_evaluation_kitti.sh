@@ -25,7 +25,8 @@ args=(
     --entity biyang
     --wandb_disabled
     --project_name kitti_evaluation
-    --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling/AblationStudies/non_square_window2x8_withall_deepnetwork/
+    #
+    --output_dir /cluster/work/riner/users/biyang/pretrained_weights/tulip_kitti.pth
     --img_size_low_res 16 1024
     --img_size_high_res 64 1024
     --window_size 2 8

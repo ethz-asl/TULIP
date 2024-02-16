@@ -7,7 +7,6 @@ from einops import rearrange
 
 from model.swin_unet import PatchEmbedding, BasicBlock, PatchExpanding, BasicBlockUp, PixelShuffleHead, BasicBlockUpV2, BasicBlockV2, PixelShuffleExpanding
 from util.pos_embed import get_2d_sincos_pos_embed
-from util.datasets import grid_reshape, grid_reshape_backward
 import copy
 
 
@@ -334,7 +333,7 @@ class SwinAutoencoder(nn.Module):
 
 
 
-def swin_mae_line2_ws4_dec768d(**kwargs):
+def swin_autoencoder_base(**kwargs):
     model = SwinAutoencoder(
         patch_size=(1, 4),
         window_size=4,
@@ -346,66 +345,8 @@ def swin_mae_line2_ws4_dec768d(**kwargs):
         #  **kwargs)
     return model
 
-def swin_mae_small_line2_ws4_dec768d(**kwargs):
-    model = SwinAutoencoder(
-        patch_size=(1, 4),
-        window_size=4,
-        decoder_embed_dim=384,
-        depths=(2, 2, 2), embed_dim=96, num_heads=(3, 6, 12),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-        #  **kwargs)
-    return model
-
-
-def swin_mae_tiny_line2_ws4_dec768d(**kwargs):
-    model = SwinAutoencoder(
-        patch_size=(1, 4),
-        window_size=4,
-        decoder_embed_dim=192,
-        depths=(2, 2), embed_dim=96, num_heads=(3, 6),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-        #  **kwargs)
-    return model
-
-
-def swin_mae_deep_line2_ws4_dec768d(**kwargs):
-    model = SwinAutoencoder(
-        patch_size=(1, 4),
-        window_size=4,
-        decoder_embed_dim=1536,
-        depths=(2, 2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24, 48),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-        #  **kwargs)
-    return model
-
-def swin_mae_deeper_line2_ws4_dec768d(**kwargs):
-    model = SwinAutoencoder(
-        patch_size=(1, 4),
-        window_size=4,
-        decoder_embed_dim=3072,
-        depths=(2, 2, 2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24, 48, 96),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-        #  **kwargs)
-    return model
 
 
 
-
-
-
-
-
-swin_mae_patch2_base_line_ws4 = swin_mae_line2_ws4_dec768d
-swin_mae_patch2_small_line_ws4 = swin_mae_small_line2_ws4_dec768d
-swin_mae_patch2_tiny_line_ws4 = swin_mae_tiny_line2_ws4_dec768d
-swin_mae_patch2_deep_line_ws4 = swin_mae_deep_line2_ws4_dec768d
-swin_mae_patch2_deeper_line_ws4 = swin_mae_deeper_line2_ws4_dec768d
+swin_autoencoder_base = swin_autoencoder_base
 

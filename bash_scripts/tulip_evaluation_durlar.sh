@@ -25,7 +25,7 @@ args=(
     --entity biyang
     # --wandb_disabled
     --project_name durlar_evaluation
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_4/Baseline/
+    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_4/test
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --window_size 2 8

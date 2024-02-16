@@ -160,8 +160,8 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 
     for batch in tqdm.tqdm(data_loader):
 
-        images_low_res = batch[0][0] # (B=1, C, H, W)
-        images_high_res = batch[1][0] # (B=1, C, H, W)
+        images_low_res = batch[0]['sample'] # (B=1, C, H, W)
+        images_high_res = batch[1]['sample'] # (B=1, C, H, W)
 
         images_low_res = images_low_res.to(device, non_blocking=True)
         images_high_res = images_high_res.to(device, non_blocking=True)
@@ -552,9 +552,6 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             evaluation_metrics['precision'].append(precision)
             evaluation_metrics['recall'].append(recall)
             evaluation_metrics['f1'].append(f1)
-
-
-            print(pixel_loss_one_input.item(), chamfer_dist.item(), iou, precision, recall, f1)
 
             
             if global_step % 100 == 0 or global_step == 1:

@@ -39,79 +39,6 @@ from pathlib import Path
 IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff', '.webp', '.jpx')
 NPY_EXTENSIONS = ('.npy', '.rimg', '.bin')
 
-
-
-## Add Gaussian Noise (sensor noise)
-
-
-
-
-
-def grid_reshape(img, params, order="bhwc"):
-
-    H, W, C, num_grids, grid_size = params
-
-    # B, H, W, C = img.shape
-
-    # num_grids = W // H 
-    # grid_size = num_grids ** 0.5
-    # assert grid_size == int(grid_size)
-
-    # grid_size = int(grid_size)
-    if order == "bhwc":
-
-        new_img = torch.empty((img.shape[0],  grid_size * H, grid_size * H, C), device = img.device)
-
-        for i in range(num_grids):
-            u = i // grid_size
-            v = i % grid_size
-            new_img[:,u*H:(u+1)*H, v*H:(v+1)*H, :] = img[:, 0:H, i*H:(i+1)*H,:]
-
-    elif order == "bchw":
-        new_img = torch.empty((img.shape[0], C, grid_size * H, grid_size * H), device = img.device)
-
-        for i in range(num_grids):
-            u = i // grid_size
-            v = i % grid_size
-            new_img[:, :,u*H:(u+1)*H, v*H:(v+1)*H] = img[:, :,0:H, i*H:(i+1)*H]
-    
-    else:
-        raise NotImplementedError("the order for reshaping is not implemented")
-
-    return new_img
-
-def grid_reshape_backward(img, params, order="bhwc"):
-
-    H, W, C, num_grids, grid_size = params
-
-    # B, _, _, C = img.shape
-    # H, W = target_img_size
-
-    # num_grids = W // H
-    # grid_size = num_grids ** 0.5
-    # assert grid_size == int(grid_size)
-
-    # grid_size = int(grid_size)
-
-    if order == "bhwc":
-        new_img = torch.empty((img.shape[0], H, W, C), device=img.device)
-        for i in range(num_grids):
-            u = i // grid_size
-            v = i % grid_size
-            new_img[:, 0:H, i*H:(i+1)*H, :] = img[:, u*H:(u+1)*H, v*H:(v+1)*H, :]
-    elif order == "bchw":
-        new_img = torch.empty((img.shape[0], C , H, W), device=img.device)
-        for i in range(num_grids):
-            u = i // grid_size
-            v = i % grid_size
-            new_img[:, :, 0:H, i*H:(i+1)*H] = img[:, :, u*H:(u+1)*H, v*H:(v+1)*H]
-
-    else:
-        raise NotImplementedError("the order for reshaping is not implemented")
-
-    return new_img
-
-
 class AddGaussianNoise(torch.nn.Module):
     def __init__(self, mu, sigma):
         super().__init__()#
@@ -326,18 +253,6 @@ def build_durlar_upsampling_dataset(is_train, args):
 
     t_low_res.append(DownsampleTensor(h_high_res=output_size[0], downsample_factor=output_size[0]//input_size[0]))
 
-    # if args.keep_close_scan and args.keep_far_scan:
-    #     print("Cannot mask out far and close pixels at the same time, please check the arguments")
-    # if args.keep_far_scan:
-    #     print("The points within 30 m are removed from the range map")
-    #     t_low_res.append(KeepFarScan(min_dist=30/120))
-    #     t_high_res.append(KeepFarScan(min_dist=30/120))
-    # if args.keep_close_scan:
-    #     # Max Distance as 50 m
-    #     print("The points out of 30 m are removed from the range map")
-    #     t_low_res.append(KeepCloseScan(max_dist=30/120))
-    #     t_high_res.append(KeepCloseScan(max_dist=30/120))
-
     if args.crop:
         t_low_res.append(transforms.CenterCrop(args.img_size_low_res))
         t_high_res.append(transforms.CenterCrop(args.img_size_high_res))
@@ -383,8 +298,6 @@ def build_kitti_pretraining_dataset(is_train, args):
         t.append(LogTransform())
     transform = transforms.Compose(t)
 
-    # Default using 20000 trianing data
-    # root = os.path.join(args.data_path, 'train20000' if is_train else 'val')
     root = os.path.join(args.data_path, 'train200000' if is_train else 'val')
     dataset = RangeMapFolder(root, transform=transform, loader=npy_loader_without_intensity, class_dir = False)
 
@@ -416,10 +329,6 @@ def build_kitti_upsampling_dataset(is_train, args):
         root_low_res = os.path.join(args.data_path_low_res, 'train20000' if is_train else 'val')
         root_high_res = os.path.join(args.data_path_high_res, 'train20000' if is_train else 'val')
 
-    # root_low_res = os.path.join(args.data_path_low_res, 'train200000' if is_train else 'val')
-
-    # root_high_res = os.path.join(args.data_path_high_res, 'train200000' if is_train else 'val')
-
 
     dataset_low_res = RangeMapFolder(root_low_res, transform = transform_low_res, loader=bin_loader if args.downstream_task else npy_loader_without_intensity, 
                                      class_dir = False, downstream_task=args.downstream_task)
@@ -450,15 +359,7 @@ def build_carla_pretraining_dataset(is_train, args):
         t.append(DepthwiseConcatenation(h_high_res=128, downsample_factor=4))
         input_img_path = str(input_size[0]*4) + '_' + str(input_size[1])
     else:
-        input_img_path = str(input_size[0]) + '_' + str(input_size[1])
-
-    # if input_size[0] == 32 :
-    #     input_img_path = str(input_size[0]*4) + '_' + str(input_size[1])
-    #     t.append(DownsampleTensor(h_high_res=input_size[0]*4, downsample_factor=4))
-    # else:
-    
-
-    
+        input_img_path = str(input_size[0]) + '_' + str(input_size[1])    
 
     if args.log_transform:
         t.append(LogTransform())
@@ -475,106 +376,6 @@ def build_carla_pretraining_dataset(is_train, args):
 
 
     return input_data
-
-def build_carla200000_pretraining_dataset(is_train, args):
-    flags = copy.deepcopy(args)
-    flags.data_path = "/cluster/work/riner/users/biyang/dataset/Carla/"
-    if is_train:
-        carla_part1 = build_carla_pretraining_dataset(is_train, flags)
-
-        input_size = tuple(args.input_size)
-
-        if input_size[0] == 32 or input_size[0] == 128:
-            velodyne_path = "velodyne-128"
-        elif input_size[0] == 16 or input_size[0] == 64:
-            velodyne_path = "velodyne-64"
-
-        dirs_input = Path(args.data_path).glob('*/*')
-        dirs_input = [x for x in list(dirs_input) if not x.is_file()]
-       
-        t = [transforms.ToTensor(), 
-                    ScaleTensor(1/80), 
-                    FilterInvalidPixels(min_range = 2/80, max_range = 1),]
-
-        if input_size[0] == 32 and args.in_chans == 4:
-            t.append(DepthwiseConcatenation(h_high_res=128, downsample_factor=4))
-
-        if args.log_transform:
-            t.append(LogTransform())
-
-        transform_input = transforms.Compose(t)
-
-        scenes_data_input = []
-
-        for dir_input in dirs_input:
-            scan_dir_input = os.path.join(dir_input, velodyne_path)
-            scenes_data_input.append(RangeMapFolder(scan_dir_input, transform = transform_input, loader=npy_loader_without_intensity, class_dir=False))
-
-
-        carla_part2  = data.ConcatDataset(scenes_data_input)
-        carla_200000 = data.ConcatDataset([carla_part1, carla_part2])
-    else:
-        carla_200000 = build_carla_upsampling_dataset(is_train=False, args=flags)
-
-    return carla_200000
-
-
-def build_carla200000_upsampling_dataset(is_train, args):
-    flags = copy.deepcopy(args)
-    flags.data_path_low_res = "/cluster/work/riner/users/biyang/dataset/Carla/"
-    flags.data_path_high_res = "/cluster/work/riner/users/biyang/dataset/Carla/"
-    if is_train:
-        carla_part1 = build_carla_upsampling_dataset(is_train, flags)
-
-        input_size = tuple(args.img_size_low_res)
-        output_size = tuple(args.img_size_high_res)
-
-        if output_size[0] == 128:
-            velodyne_path = "velodyne-128"
-        elif output_size[0] == 64:
-            velodyne_path = "velodyne-64"
-
-        dirs_high_res = Path(args.data_path_high_res).glob('*/*')
-        dirs_high_res = [x for x in list(dirs_high_res) if not x.is_file()]
-        dirs_low_res = Path(args.data_path_low_res).glob('*/*')
-        dirs_low_res = [x for x in list(dirs_low_res) if not x.is_file()]
-
-        
-        t_low_res = [transforms.ToTensor(), 
-                    ScaleTensor(1/80), 
-                    FilterInvalidPixels(min_range = 2/80, max_range = 1),
-                    DownsampleTensor(h_high_res=output_size[0], downsample_factor=output_size[0]//input_size[0])]
-        t_high_res = [transforms.ToTensor(), ScaleTensor(1/80), FilterInvalidPixels(min_range = 2/80, max_range = 1)]
-
-        if args.log_transform:
-            t_low_res.append(LogTransform())
-            t_high_res.append(LogTransform())
-
-        transform_low_res = transforms.Compose(t_low_res)
-        transform_high_res = transforms.Compose(t_high_res)
-
-        scenes_data_input = []
-        scenes_data_output = []
-
-        for dir_high_res, dir_low_res in zip(dirs_high_res, dirs_low_res):
-            scan_dir_high_res = os.path.join(dir_high_res, velodyne_path)
-            scan_dir_low_res = os.path.join(dir_low_res, velodyne_path)
-
-            scenes_data_input.append(RangeMapFolder(scan_dir_low_res, transform = transform_low_res, loader=npy_loader_without_intensity, class_dir=False))
-            scenes_data_output.append(RangeMapFolder(scan_dir_high_res, transform = transform_high_res, loader=npy_loader_without_intensity, class_dir=False))
-
-
-
-        input_data = data.ConcatDataset(scenes_data_input)
-        output_data = data.ConcatDataset(scenes_data_output)
-
-        carla_part2 = PairDataset(input_data, output_data)
-
-        carla_200000 = data.ConcatDataset([carla_part1, carla_part2])
-    else:
-        carla_200000 = build_carla_upsampling_dataset(is_train=False, args=flags)
-
-    return carla_200000
     
 
 
@@ -725,14 +526,6 @@ def build_transform(is_train, args):
     
     # t.append(transforms.Normalize(mean, std))
     return transforms.Compose(t)
-
-
-# class ToTensorFloat32(object):
-#     def __call__(self, image):
-#         # Convert to Tensor 
-#         image = torch.as_tensor(np.asarray(image), dtype=torch.float32) 
-        
-#         return image
 
 
 class ComposeDepthIntensity(object):

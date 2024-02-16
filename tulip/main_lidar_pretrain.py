@@ -18,7 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from util.datasets import build_dataset, build_durlar_pretraining_dataset, build_depth_intensity_dataset, \
-    build_carla_pretraining_dataset, build_kitti_pretraining_dataset, build_carla200000_pretraining_dataset
+    build_carla_pretraining_dataset, build_kitti_pretraining_dataset
 from util.pos_embed import interpolate_pos_embed
 
 import timm
@@ -228,11 +228,6 @@ def main(args):
             elif args.dataset_select == 'kitti':
                 dataset_train = build_kitti_pretraining_dataset(is_train=True, args=args)
                 dataset_val = build_kitti_pretraining_dataset(is_train=False, args=args)
-            
-            elif args.dataset_select == 'carla200000':
-                dataset_train = build_carla200000_pretraining_dataset(is_train=True, args=args)
-                dataset_val = build_carla200000_pretraining_dataset(is_train=False, args=args)
-
             else:
                 raise NotImplementedError("Cannot find the matched dataset builder")
             

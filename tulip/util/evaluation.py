@@ -195,21 +195,7 @@ def chamfer_distance(points1, points2, num_points = None):
     dist1, dist2, _, _ = chd(source, target)
     cdist = (torch.mean(dist1)) + (torch.mean(dist2)) if num_points is None else (dist1.sum()/num_points) + (dist2.sum()/num_points)
 
-    # chamferDist = ChamferDistance()
-
-    # cdist = chamferDist(source, target,  bidirectional=True)
-
-
     return cdist.detach().cpu()
-
-# def chamfer_distance(points1, points2):
-#     # Calculate the distance from each point in points1 to its nearest neighbor in points2
-#     dist1 = distance.cdist(points1, points2).min(axis=1)
-#     # Calculate the distance from each point in points2 to its nearest neighbor in points1
-#     dist2 = distance.cdist(points2, points1).min(axis=1)
-#     # Calculate the average distance
-#     chamfer_dist = np.mean(dist1) + np.mean(dist2)
-#     return chamfer_dist
 
 def depth_wise_unconcate(imgs): # H W
     b, c, h, w = imgs.shape

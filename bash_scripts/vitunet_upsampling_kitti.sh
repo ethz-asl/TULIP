@@ -7,7 +7,7 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 
 args=(
-    --batch_size 32
+    --batch_size 4
     --epochs 600
     --num_workers 2
     --lr 5e-4
@@ -25,7 +25,7 @@ args=(
     # WandB Parameters
     --run_name ViTUnet
     --entity biyang
-    # --wandb_disabled
+    --wandb_disabled
     --project_name experiment_kitti
     --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling/AblationStudies/vit_unet_normal
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
