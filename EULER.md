@@ -48,6 +48,17 @@ pip install -r requirements.txt
 pip install git+'https://github.com/otaheri/chamfer_distance'  # fast computation for chamfer distance
 ```
 
+## 4. Start your experiment
+```
+# interactive job
+srun -A ls_riner --gpus=rtx_2080_ti:1 --mem-per-cpu=20G --ntasks=16  --pty bash 
+# Submit job to remote server
+sbatch --gpus=rtx_3090:1 --mem-per-cpu=20G --ntasks=16 --time=24:00:00 your_task
+```
+About arguments and commands: https://scicomp.ethz.ch/wiki/Using_the_batch_system \
+About gpus in euler cluster: https://scicomp.ethz.ch/wiki/Getting_started_with_GPUs\
+Modules in euler cluster can be loaded by calling 'module load your_module'. All available applications: https://scicomp.ethz.ch/wiki/Euler_applications_and_libraries
+
 ## Some other notes
 
 You can also use `sbatch` to submit the jobs to remote cluster instead of starting a interactive job. If you want to submit a job with bash script, you have to structure MyJob.sh as following.
@@ -56,3 +67,6 @@ You can also use `sbatch` to submit the jobs to remote cluster instead of starti
 #!/bin/sh
 ---- here is your work for submission----
 ```
+
+
+
