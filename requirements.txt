@@ -1,0 +1,15 @@
+
+einops
+matplotlib
+numpy
+Pillow
+tensorboardX
+torch-ema
+trimesh
+opencv-python
+numpy 
+pandas
+tqdm
+scipy
+wandb
+scikit-learn
