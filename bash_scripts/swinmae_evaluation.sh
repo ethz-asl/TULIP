@@ -58,4 +58,4 @@ args=(
 
 # python mae/main_ouster.py "${args[@]}"   
 #python -m torch.distributed.launch --nproc_per_node=2 mae/main_ouster.py "${args[@]}"
-torchrun --nproc_per_node=1 mae/main_ouster.py "${args[@]}"
+torchrun --nproc_per_node=1 tulip/main_lidar_pretrain.py "${args[@]}"
