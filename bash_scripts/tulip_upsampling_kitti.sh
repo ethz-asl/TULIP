@@ -16,22 +16,22 @@ args=(
     --weight_decay 0.01
     --warmup_epochs 60
     # Model parameters
-    --model_select swin_unet
+    --model_select tulip_large
     --pixel_shuffle # improve
     --circular_padding # improve
     --log_transform # improve
-    --pixel_shuffle_expanding # improve
+    --patch_unmerging # improve
     # Dataset
     --dataset_select kitti
     --data_path_low_res /cluster/work/riner/users/biyang/dataset/KITTI/
     --data_path_high_res /cluster/work/riner/users/biyang/dataset/KITTI/
     # WandB Parameters
-    --run_name Baseline_patch4x4+pixelshuffle+patchunmerging
+    --run_name tulip_large
     --entity biyang
-    --wandb_disabled
+    # --wandb_disabled
     --project_name experiment_kitti
     # Specify the output directory
-    --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling/AblationStudies/test
+    --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling3/tulip_large
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     --img_size_low_res 16 1024
     --img_size_high_res 64 1024

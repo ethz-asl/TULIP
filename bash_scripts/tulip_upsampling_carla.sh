@@ -13,21 +13,21 @@ args=(
     --lr 5e-4
     --weight_decay 0.01
     --warmup_epochs 60
-    --model_select swin_unet
+    --model_select tulip_large
     --pixel_shuffle # improve
     --circular_padding # improve
     --log_transform # improve
-    --pixel_shuffle_expanding # improve
+    --patch_unmerging # improve
     # Dataset
     --dataset_select carla
     --data_path_low_res /cluster/work/riner/users/biyang/dataset/Carla/
     --data_path_high_res /cluster/work/riner/users/biyang/dataset/Carla/
     # WandB Parameters
-    --run_name test
+    --run_name tulip_large
     --entity biyang
-    --wandb_disabled
+    # --wandb_disabled
     --project_name experiment_carla
-    --output_dir test
+    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling2/tulip_large
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
@@ -38,4 +38,4 @@ args=(
 
 # python mae/main_ouster.py "${args[@]}"   
 #python -m torch.distributed.launch --nproc_per_node=2 mae/main_ouster.py "${args[@]}"
-torchrun --nproc_per_node=1 tulip/main_lidar_upsampling.py "${args[@]}"
+torchrun --nproc_per_node=4 tulip/main_lidar_upsampling.py "${args[@]}"

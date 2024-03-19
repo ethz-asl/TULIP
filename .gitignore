@@ -29,6 +29,7 @@ sota_reproduce/
 *.npy
 mae/util/__pycache__/*
 downstream_tasks/
+*.gif
 
 
 

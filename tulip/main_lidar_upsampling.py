@@ -17,7 +17,7 @@ import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from util.datasets import build_durlar_upsampling_dataset, build_carla_upsampling_dataset, build_kitti_upsampling_dataset
+from util.datasets import generate_dataset
 from util.pos_embed import interpolate_pos_embed
 
 import timm
@@ -29,11 +29,8 @@ from timm.models.layers import trunc_normal_
 import util.misc as misc
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
-# import swin_unet_template as swin_unet
-import model.swin_unet as swin_unet
-import model.vit_unet as vit_unet
+import model.tulip as tulip
 from engine_upsampling import train_one_epoch, evaluate, get_latest_checkpoint, MCdrop
-from evaluate_different_ranges import evaluate_diff_ranges, MCdrop_diff_ranges
 import wandb
 
 # from torch_ema import ExponentialMovingAverage
@@ -41,57 +38,26 @@ import wandb
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE pre-training', add_help=False)
-    parser.add_argument('--batch_size', default=64, type=int,
-                        help='Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus')
-    parser.add_argument('--epochs', default=400, type=int)
-    parser.add_argument('--accum_iter', default=1, type=int,
-                        help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
-
-
-    # Pretrain parameters (MAE)
-    parser.add_argument('--pretrain', default=None, type=str,
-                        help='full path of pretrain model')
-    parser.add_argument('--pretrain_only_encoder', action='store_true', help="Only load pretrained weights of the encoder")
-    parser.add_argument('--fixed_encoder', action='store_true', help="fixed the weights of the pretrained_encoder")
-    parser.add_argument('--fixed_all', action='store_true', help="fixed the weights of all pretrained weights")
     
-    parser.add_argument('--pretrain_only_decoder', action='store_true', help="Initialize the encoder with pretrained decoder")
-    parser.add_argument('--use_cls_token', action='store_true', help="Use CLS token in embedding")
 
-    # Swin MAE parameters
+    # Model parameters
+    parser.add_argument('--model_select', default='mae', type=str,
+                        choices=['tulip_base', 'tulip_large'])
+
     parser.add_argument('--window_size', nargs="+", type=int,
                         help='size of window partition')
     parser.add_argument('--remove_mask_token', action="store_true", help="Remove mask token in the encoder")
     parser.add_argument('--patch_size', nargs="+", type=int, help='image size, given in format h w')
-
-
-    # Model parameters
-    parser.add_argument('--model_select', default='mae', type=str,
-                        choices=['mae', 'swin_mae', 'swin_unet', 'vit_unet',
-                                 'swin_unet_v2', 'swin_unet_deep', 'swin_unet_deeper',
-                                 'swin_unet_moredepths', 'swin_unet_v2_deep', 'swin_unet_v2_deeper',
-                                 'swin_unet_v2_moredepths', 'swin_unet_with_pretrain'])
-
-    parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
-                        help='Name of model to train')
-    
-    parser.add_argument('--pretrain_mae_model', default='swin_mae_patch2_base_line_ws4', type=str, metavar='MODEL',
-                        help='Name of model to train')
-
-    parser.add_argument('--input_size', default=224, type=int,
-                        help='images input size')
     
     parser.add_argument('--pixel_shuffle', action='store_true',
                         help='pixel shuffle upsampling head')
     parser.add_argument('--circular_padding', action='store_true',
                         help='circular padding, kernel size is 1, 8 and stride is 1, 4')
-    parser.add_argument('--pixel_shuffle_expanding', action='store_true',
-                        help='pixel shuffle upsampling in expanding path')
-    
+    parser.add_argument('--patch_unmerging', action='store_true',
+                        help='reverse operation of patch merging')
+    parser.add_argument('--swin_v2', action='store_true',
+                        help='use swin_v2 block')
 
-    parser.add_argument('--norm_pix_loss', action='store_true',
-                        help='Use (per-patch) normalized pixels as targets for computing loss')
-    parser.set_defaults(norm_pix_loss=False)
     
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
@@ -109,27 +75,10 @@ def get_args_parser():
     
     
     # Augmentation parameters
-    parser.add_argument('--color_jitter', type=float, default=None, metavar='PCT',
-                        help='Color jitter factor (enabled only when not using Auto/RandAug)')
-    parser.add_argument('--aa', type=str, default='rand-m9-mstd0.5-inc1', metavar='NAME',
-                        help='Use AutoAugment policy. "v0" or "original". " + "(default: rand-m9-mstd0.5-inc1)'),
-    parser.add_argument('--smoothing', type=float, default=0.1,
-                        help='Label smoothing (default: 0.1)')
-    
-     # * Random Erase params
-    parser.add_argument('--reprob', type=float, default=0.25, metavar='PCT',
-                        help='Random erase prob (default: 0.25)')
-    parser.add_argument('--remode', type=str, default='pixel',
-                        help='Random erase mode (default: "pixel")')
-    parser.add_argument('--recount', type=int, default=1,
-                        help='Random erase count (default: 1)')
-    parser.add_argument('--resplit', action='store_true', default=False,
-                        help='Do not random erase first (clean) augmentation split')
+    parser.add_argument('--roll', action="store_true", help='random roll range map in vertical direction')
 
     # Dataset parameters
-    parser.add_argument('--dataset_select', default='durlar', type=str, choices=['durlar', 'carla','kitti', 'image-net', 'carla200000'])
-
-    parser.add_argument('--gray_scale', action="store_true", help='use gray scale imgae')
+    parser.add_argument('--dataset_select', default='durlar', type=str, choices=['durlar', 'carla','kitti'])
     parser.add_argument('--img_size_low_res', nargs="+", type=int, help='low resolution image size, given in format h w')
     parser.add_argument('--img_size_high_res', nargs="+", type=int, help='high resolution image size, given in format h w')
     parser.add_argument('--in_chans', type=int, default = 1, help='number of channels')
@@ -138,23 +87,19 @@ def get_args_parser():
     parser.add_argument('--data_path_high_res', default=None, type=str,
                         help='high resolution dataset path')
     
-    
-    # Durlar dataset parameters
-    parser.add_argument('--crop', action="store_true", help='crop the image to 128 x 128 (default)')
-    parser.add_argument('--mask_loss', action="store_true", help='Mask the loss value with no LiDAR return')
-    parser.add_argument('--use_intensity', action="store_true", help='use the intensity as the second channel')
-    parser.add_argument('--reverse_pixel_value', action="store_true", help='reverse the pixel value in the input')
     parser.add_argument('--save_pcd', action="store_true", help='save pcd output in evaluation step')
     parser.add_argument('--log_transform', action="store_true", help='apply log1p transform to data')
     parser.add_argument('--keep_close_scan', action="store_true", help='mask out pixel belonging to further object')
     parser.add_argument('--keep_far_scan', action="store_true", help='mask out pixel belonging to close object')
-
-    parser.add_argument('--roll', action="store_true", help='random roll range map in vertical direction')
-    
-    
     
 
     # Training parameters
+    parser.add_argument('--batch_size', default=64, type=int,
+                        help='Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus')
+    parser.add_argument('--epochs', default=400, type=int)
+    parser.add_argument('--accum_iter', default=1, type=int,
+                        help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
+    
     parser.add_argument('--output_dir', default='./output_dir',
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default='./output_dir',
@@ -164,8 +109,6 @@ def get_args_parser():
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
-    
-    parser.add_argument('--use_ema', action='store_true',help='use Expoential Moving Average')
 
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
@@ -185,16 +128,14 @@ def get_args_parser():
                         help='url used to set up distributed training')
     
     
+    # Logger parameters
     parser.add_argument('--wandb_disabled', action='store_true', help="disable wandb")
     parser.add_argument('--entity', type = str, default = "biyang")
     parser.add_argument('--project_name', type = str, default = "Ouster_MAE")
     parser.add_argument('--run_name', type = str, default = None)
 
+    # Evaluation parameters
     parser.add_argument('--eval', action='store_true', help="evaluation")
-    parser.add_argument('--downstream_task', action='store_true', help="if data is used for downstream_task")
-    parser.add_argument('--evaluate_with_specific_indices', action='store_true', help="evaluation with specific indices")
-    parser.add_argument('--evaluate_with_different_ranges', action='store_true', help="evaluation with histogramized ranges")
-    parser.add_argument('--analyze', action='store_true', help="call model analysis")
     parser.add_argument('--mc_drop', action='store_true', help="apply monte carlo dropout at inference time")
     parser.add_argument('--num_mcdropout_iterations', type = int, default=50, help="number of inference for monte carlo dropout")
     parser.add_argument('--noise_threshold', type = float, default=0.03, help="threshold of monte carlo dropout")
@@ -222,20 +163,9 @@ def main(args):
 
     cudnn.benchmark = True
 
-    if args.dataset_select == 'durlar':
-        dataset_train = build_durlar_upsampling_dataset(is_train = True, args = args)
-        dataset_val = build_durlar_upsampling_dataset(is_train = False, args = args)
-    elif args.dataset_select == 'carla':
-        dataset_train = build_carla_upsampling_dataset(is_train = True, args = args)
-        dataset_val = build_carla_upsampling_dataset(is_train = False, args = args)
-    elif args.dataset_select == 'kitti':
-        dataset_train = build_kitti_upsampling_dataset(is_train = True, args = args)
-        dataset_val = build_kitti_upsampling_dataset(is_train = False, args = args)
-    else:
-        raise NotImplementedError("Cannot find the matched dataset builder")
-    
-    
-    
+    dataset_train = generate_dataset(is_train = True, args = args)
+    dataset_val = generate_dataset(is_train = False, args = args)
+
     print(f"There are totally {len(dataset_train)} training data and {len(dataset_val)} validation data")
 
 
@@ -293,77 +223,17 @@ def main(args):
     
     
     # define the model
-
+    model = tulip.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
+                                                    target_img_size = tuple(args.img_size_high_res),
+                                                        patch_size = tuple(args.patch_size), 
+                                                        in_chans = args.in_chans,
+                                                        window_size = args.window_size,
+                                                        swin_v2 = args.swin_v2,
+                                                        pixel_shuffle = args.pixel_shuffle,
+                                                        circular_padding = args.circular_padding,
+                                                        log_transform = args.log_transform,
+                                                        patch_unmerging = args.patch_unmerging)
     
-    if args.model_select.__contains__('vit_unet'):
-        model = vit_unet.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
-                                                            patch_size = tuple(args.patch_size), 
-                                                            in_chans = args.in_chans,
-                                                            circular_padding = args.circular_padding,
-                                                            log_transform = args.log_transform)
-            
-
-            # pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            # print(f"There are totally {pytorch_total_params} parameters in the model")
-
-            # exit(0)
-        
-    else:
-        model = swin_unet.__dict__[args.model_select](img_size = tuple(args.img_size_low_res),
-                                                        target_img_size = tuple(args.img_size_high_res),
-                                                            patch_size = tuple(args.patch_size), 
-                                                            in_chans = args.in_chans,
-                                                            window_size = args.window_size,
-                                                            pixel_shuffle = args.pixel_shuffle,
-                                                            circular_padding = args.circular_padding,
-                                                            log_transform = args.log_transform,
-                                                            pixel_shuffle_expanding = args.pixel_shuffle_expanding,)
-        
-    # Load pretrained model
-    if args.pretrain is not None and not args.perceptual_loss:
-        pretrain = torch.load(args.pretrain, map_location='cpu')
-
-        print("Load pre-trained checkpoint from: %s" % args.pretrain)
-        pretrain_model = pretrain['model']
-
-        state_dict = model.state_dict()
-        for k in ['head.weight', 'patch_embed.proj.weight', 'decoder_pred.weight']:
-            if k in pretrain_model and pretrain_model[k].shape != state_dict[k].shape:
-                print(f"Removing key {k} from pretrained checkpoint")
-                del pretrain_model[k]
-
-        if args.fixed_all:
-            for name, p in model.named_parameters():
-                if name in list(pretrain_model.keys()):
-                    p.requires_grad = False
-        
-        # state_dict = model.state_dict()
-
-        if args.pretrain_only_encoder:
-            for k in list(pretrain_model.keys()):
-                if k.__contains__('up') or \
-                    k.__contains__('head') or \
-                    k.__contains__('decoder') or \
-                    k.__contains__('skip_connection') or \
-                    k.__contains__('first_patch_expanding') or \
-                    k.__contains__('output_weights'):
-                    print(f"Removing key {k} from pretrained checkpoint")
-                    del pretrain_model[k]
-
-            if args.fixed_encoder:
-                # Freeze the parameters in pretrain model
-                # Only the decoder is randomly initialized
-                print("Freeze the parameters in pretrained encoder")
-                for name, p in model.named_parameters():
-                    if name in list(pretrain_model.keys()):
-                        p.requires_grad = False
-
-        msg = model.load_state_dict(pretrain_model, strict=False)
-        print(msg)
-
-        
-    else:
-        print("Training from scratch")
 
     if args.eval and os.path.exists(args.output_dir):
         print("Loading Checkpoint and directly start the evaluation")
@@ -386,20 +256,16 @@ def main(args):
         
         print("Start Evaluation")
         if args.mc_drop and not args.evaluate_with_different_ranges:
-            print("Apply Monte-Carlo Dropout")
+            print("Evaluation with Monte Carlo Dropout")
             MCdrop(data_loader_val, model, device, log_writer = log_writer, args = args)
-        elif args.evaluate_with_different_ranges and not args.mc_drop:
-            print("Evaluate with different ranges")
-            evaluate_diff_ranges(data_loader_val, model, device, log_writer = log_writer, args = args)
-        elif args.evaluate_with_different_ranges and args.mc_drop:
-            print("Evaluate with different ranges and apply Monte-Carlo Dropout")
-            MCdrop_diff_ranges(data_loader_val, model, device, log_writer = log_writer, args = args)
         else:
             evaluate(data_loader_val, model, device, log_writer = log_writer, args = args)
         print("Evaluation finished")
 
 
         exit(0)
+    else:
+        print("Start Training")
         
 
     model.to(device)
@@ -472,8 +338,6 @@ if __name__ == '__main__':
     #     args.img_size = tuple(args.img_size)
 
     # Pre-Check
-    if args.use_intensity:
-        assert args.in_chans > 1
     if args.output_dir and not args.eval:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)

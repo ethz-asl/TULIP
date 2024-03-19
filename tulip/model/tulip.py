@@ -106,9 +106,9 @@ class PatchMerging(nn.Module):
         return x
 
 # Patch Unmerging layer
-class PixelShuffleExpanding(nn.Module):
-    def __init__(self, dim: int, norm_layer=nn.LayerNorm):
-        super(PixelShuffleExpanding, self).__init__()
+class PatchUnmerging(nn.Module):
+    def __init__(self, dim: int):
+        super(PatchUnmerging, self).__init__()
         self.dim = dim
         #ToDo: Use linear with norm layer?
         self.expand = nn.Conv2d(in_channels=dim, out_channels=dim*2, kernel_size=(1, 1))
@@ -442,7 +442,7 @@ class BasicBlockUp(nn.Module):
     def __init__(self, index: int, embed_dim: int = 96, window_size: int = 7, depths: tuple = (2, 2, 6, 2),
                  num_heads: tuple = (3, 6, 12, 24), mlp_ratio: float = 4., qkv_bias: bool = True,
                  drop_rate: float = 0., attn_drop_rate: float = 0., drop_path: float = 0.1,
-                 patch_expanding: bool = True, norm_layer=nn.LayerNorm, pixel_shuffle_expanding: bool = False):
+                 patch_expanding: bool = True, norm_layer=nn.LayerNorm, patch_unmerging: bool = False):
         super(BasicBlockUp, self).__init__()
         index = len(depths) - index - 2
         depth = depths[index]
@@ -466,8 +466,8 @@ class BasicBlockUp(nn.Module):
                 norm_layer=norm_layer)
             for i in range(depth)])
         if patch_expanding:
-            if pixel_shuffle_expanding:
-                self.upsample = PixelShuffleExpanding(dim = embed_dim * 2 ** index)
+            if patch_unmerging:
+                self.upsample = PatchUnmerging(dim = embed_dim * 2 ** index)
             else:
                 self.upsample = PatchExpanding(dim=embed_dim * 2 ** index, norm_layer=norm_layer)
             
@@ -484,7 +484,7 @@ class BasicBlockUpV2(nn.Module):
     def __init__(self, index: int, embed_dim: int = 96, input_resolution: tuple=(128, 128),  window_size: int = 7, depths: tuple = (2, 2, 6, 2),
                  num_heads: tuple = (3, 6, 12, 24), mlp_ratio: float = 4., qkv_bias: bool = True,
                  drop_rate: float = 0., attn_drop_rate: float = 0., drop_path: float = 0.1,
-                 patch_expanding: bool = True, norm_layer=nn.LayerNorm, pixel_shuffle_expanding: bool = False):
+                 patch_expanding: bool = True, norm_layer=nn.LayerNorm, patch_unmerging: bool = False):
         super(BasicBlockUpV2, self).__init__()
         
         index = len(depths) - index - 2
@@ -512,8 +512,8 @@ class BasicBlockUpV2(nn.Module):
                 norm_layer=norm_layer)
             for i in range(depth)])
         if patch_expanding:
-            if pixel_shuffle_expanding:
-                self.upsample = PixelShuffleExpanding(dim = embed_dim * 2 ** index)
+            if patch_unmerging:
+                self.upsample = PatchUnmerging(dim = embed_dim * 2 ** index)
             else:
                 self.upsample = PatchExpanding(dim=embed_dim * 2 ** index, norm_layer=norm_layer)
         else:
@@ -527,12 +527,12 @@ class BasicBlockUpV2(nn.Module):
         return x
 
 
-class SwinUnet(nn.Module):
+class TULIP(nn.Module):
     def __init__(self, img_size = (32, 2048), target_img_size = (128, 2048) ,patch_size = (4, 4), in_chans: int = 1, embed_dim: int = 96,
                  window_size: int = 4, depths: tuple = (2, 2, 6, 2), num_heads: tuple = (3, 6, 12, 24),
                  mlp_ratio: float = 4., qkv_bias: bool = True, drop_rate: float = 0., attn_drop_rate: float = 0.,
                  drop_path_rate: float = 0.1, norm_layer=nn.LayerNorm, patch_norm: bool = True, pixel_shuffle: bool = False, circular_padding: bool = False, swin_v2: bool = False, log_transform: bool = False,
-                 pixel_shuffle_expanding: bool = False):
+                 patch_unmerging: bool = False):
         super().__init__()
 
         self.window_size = window_size
@@ -551,7 +551,7 @@ class SwinUnet(nn.Module):
         self.log_transform = log_transform
 
         self.pos_drop = nn.Dropout(p=drop_rate)
-        self.pixel_shuffle_expanding = pixel_shuffle_expanding
+        self.patch_unmerging = patch_unmerging
         if swin_v2:
             self.layers = self.build_layers_v2()
             self.layers_up = self.build_layers_up_v2()
@@ -559,8 +559,8 @@ class SwinUnet(nn.Module):
             self.layers = self.build_layers()
             self.layers_up = self.build_layers_up()
 
-        if self.pixel_shuffle_expanding:
-            self.first_patch_expanding = PixelShuffleExpanding(dim=embed_dim * 2 ** (len(depths) - 1))
+        if self.patch_unmerging:
+            self.first_patch_expanding = PatchUnmerging(dim=embed_dim * 2 ** (len(depths) - 1))
         else:
             self.first_patch_expanding = PatchExpanding(dim=embed_dim * 2 ** (len(depths) - 1), norm_layer=norm_layer)
         
@@ -635,7 +635,7 @@ class SwinUnet(nn.Module):
                 attn_drop_rate=self.attn_drop_rate,
                 patch_expanding=True if i < self.num_layers - 2 else False,
                 norm_layer=self.norm_layer,
-                pixel_shuffle_expanding=self.pixel_shuffle_expanding)
+                patch_unmerging=self.patch_unmerging)
             layers_up.append(layer)
         return layers_up
 
@@ -675,7 +675,7 @@ class SwinUnet(nn.Module):
                 attn_drop_rate=self.attn_drop_rate,
                 patch_expanding=True if i < self.num_layers - 2 else False,
                 norm_layer=self.norm_layer,
-                pixel_shuffle_expanding=self.pixel_shuffle_expanding,)
+                patch_unmerging=self.patch_unmerging)
             layers_up.append(layer)
         return layers_up
 
@@ -736,9 +736,8 @@ class SwinUnet(nn.Module):
             total_loss, pixel_loss = self.forward_loss(x, target)
             return x, total_loss, pixel_loss
 
-def swin_unet(**kwargs):
-    model = SwinUnet(
-        # patch_size=(4, 4),
+def tulip_base(**kwargs):
+    model = TULIP(
         depths=(2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24),
         qkv_bias=True, mlp_ratio=4,
         drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
@@ -746,21 +745,8 @@ def swin_unet(**kwargs):
         #  **kwargs)
     return model
 
-# RTX 2080_Ti
-def swin_unet_moredepths(**kwargs):
-    model = SwinUnet(
-        # patch_size=(4, 4),
-        depths=(2, 2, 6, 2), embed_dim=96, num_heads=(3, 6, 12, 24),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-        #  **kwargs)
-    return model
-
-# RTX 2080_Ti
-def swin_unet_deep(**kwargs):
-    model = SwinUnet(
-        # patch_size=(4, 4),
+def tulip_large(**kwargs):
+    model = TULIP(
         depths=(2, 2, 2, 2, 2), embed_dim=96, num_heads=(3, 6, 12, 24, 48),
         qkv_bias=True, mlp_ratio=4,
         drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
@@ -769,56 +755,6 @@ def swin_unet_deep(**kwargs):
     return model
 
 
-# RTX 3090
-def swin_unet_deeper(**kwargs):
-    model = SwinUnet(
-        # patch_size=(4, 4),
-        depths=(2, 2, 2, 6, 2), embed_dim=96, num_heads=(3, 6, 12, 24, 48),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-        #  **kwargs)
-    return model
 
-def swin_unet_v2(**kwargs):
-    model = SwinUnet(
-        # patch_size=(4, 4),
-        depths=(2, 2, 2, 2), embed_dim=96 ,num_heads=(3, 6, 12, 24),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), swin_v2=True, **kwargs)
-        #  **kwargs)
-    return model
-
-
-def swin_unet_v2_moredepths(**kwargs):
-    model = SwinUnet(
-        # patch_size=(4, 4),
-        depths=(2, 2, 6, 2), embed_dim=96 ,num_heads=(3, 6, 12, 24),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), swin_v2=True, **kwargs)
-        #  **kwargs)
-    return model
-
-def swin_unet_v2_deep(**kwargs):
-    model = SwinUnet(
-        # patch_size=(4, 4),
-        depths=(2, 2, 2, 2, 2), embed_dim=96 ,num_heads=(3, 6, 12, 24, 48),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), swin_v2=True, **kwargs)
-        #  **kwargs)
-    return model
-
-def swin_unet_v2_deeper(**kwargs):
-    model = SwinUnet(
-        # patch_size=(4, 4),
-        depths=(2, 2, 2, 2, 2, 2), embed_dim=96 ,num_heads=(3, 6, 12, 24, 48, 96),
-        qkv_bias=True, mlp_ratio=4,
-        drop_path_rate=0.1, drop_rate=0, attn_drop_rate=0,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), swin_v2=True, **kwargs)
-        #  **kwargs)
-    return model
 
 

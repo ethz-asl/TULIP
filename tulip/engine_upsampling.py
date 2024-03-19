@@ -186,7 +186,7 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                 images_low_res = torch.expm1(images_low_res)
 
             
-            if args.dataset_select in ["carla", "carla200000"]:
+            if args.dataset_select == "carla":
                 pred_img = torch.where((pred_img >= 2/80) & (pred_img <= 1), pred_img, 0)
             elif args.dataset_select == "durlar":
                 pred_img = torch.where((pred_img >= 0.3/120) & (pred_img <= 1), pred_img, 0)
@@ -208,7 +208,7 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             images_low_res = images_low_res.detach().cpu().numpy()
 
 
-            if args.dataset_select in ["carla", "carla200000"]:
+            if args.dataset_select == "carla":
 
                 if tuple(args.img_size_low_res)[1] != tuple(args.img_size_high_res)[1]:
                     loss_low_res_part = 0
@@ -220,8 +220,8 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 
                     pred_img[low_res_index, :] = images_low_res
 
-                pred_img = np.flip(pred_img)
-                images_high_res = np.flip(images_high_res)
+                # pred_img = np.flip(pred_img)
+                # images_high_res = np.flip(images_high_res)
 
                 pcd_pred = img_to_pcd_carla(pred_img, maximum_range = 80)
                 pcd_gt = img_to_pcd_carla(images_high_res, maximum_range = 80)
@@ -235,12 +235,9 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 
                 pred_img[low_res_index, :] = images_low_res
 
-                if args.keep_close_scan:
-                    pred_img[pred_img > 0.375] = 0
-                    images_high_res[images_high_res > 0.375] = 0 
                 # 3D Evaluation Metrics
-                pcd_pred = img_to_pcd_kitti(pred_img, maximum_range= 120)
-                pcd_gt = img_to_pcd_kitti(images_high_res, maximum_range = 120)
+                pcd_pred = img_to_pcd_kitti(pred_img, maximum_range= 80)
+                pcd_gt = img_to_pcd_kitti(images_high_res, maximum_range = 80)
 
 
             elif args.dataset_select == "durlar":
@@ -349,12 +346,11 @@ def evaluate(data_loader, model, device, log_writer, args=None):
             total_recall += recall
 
 
-    if not args.evaluate_with_specific_indices:
-        evaluation_file_path = os.path.join(args.output_dir,'results.txt')
-        with open(evaluation_file_path, 'w') as file:
-            json.dump(evaluation_metrics, file)
+    evaluation_file_path = os.path.join(args.output_dir,'results.txt')
+    with open(evaluation_file_path, 'w') as file:
+        json.dump(evaluation_metrics, file)
 
-        print(print(f'Dictionary saved to {evaluation_file_path}'))
+    print(print(f'Dictionary saved to {evaluation_file_path}'))
 
         
     # results = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
@@ -448,7 +444,7 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             
 
              # Preprocess the image
-            if args.dataset_select in ["carla", "carla200000"]:
+            if args.dataset_select == "carla":
                 pred_img = torch.where((pred_img >= 2/80) & (pred_img <= 1), pred_img, 0)
             elif args.dataset_select == "durlar":
                 pred_img = torch.where((pred_img >= 0.3/120) & (pred_img <= 1), pred_img, 0)
@@ -461,7 +457,6 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             pixel_loss_one_input = loss_map.mean()
         
             
-
             images_high_res = images_high_res.permute(0, 2, 3, 1).squeeze()
             images_low_res = images_low_res.permute(0, 2, 3, 1).squeeze()
             pred_img = pred_img.permute(0, 2, 3, 1).squeeze()
@@ -472,7 +467,7 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             pred_img = pred_img.detach().cpu().numpy()
             images_low_res = images_low_res.detach().cpu().numpy()
 
-            if args.dataset_select in ["carla", "carla200000"]:
+            if args.dataset_select == "carla":
                 if tuple(args.img_size_low_res)[1] != tuple(args.img_size_high_res)[1]:
                     loss_low_res_part = 0
                 else:
@@ -485,10 +480,8 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
 
                     pred_img[low_res_index, :] = images_low_res
 
-                # Carla has different projection process as durlar
-                # Refer to code in iln github
-                pred_img = np.flip(pred_img)
-                images_high_res = np.flip(images_high_res)
+                # pred_img = np.flip(pred_img)
+                # images_high_res = np.flip(images_high_res)
 
                 pcd_pred = img_to_pcd_carla(pred_img, maximum_range = 80)
                 pcd_gt = img_to_pcd_carla(images_high_res, maximum_range = 80)
@@ -508,8 +501,8 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                     images_high_res[images_high_res > 0.25] = 0 
 
                 # 3D Evaluation Metrics
-                pcd_pred = img_to_pcd_kitti(pred_img, maximum_range= 120)
-                pcd_gt = img_to_pcd_kitti(images_high_res, maximum_range = 120)
+                pcd_pred = img_to_pcd_kitti(pred_img, maximum_range= 80)
+                pcd_gt = img_to_pcd_kitti(images_high_res, maximum_range = 80)
 
             elif args.dataset_select == "durlar":
                 # Keep the pixel values in low resolution image
@@ -522,10 +515,7 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
 
                 pred_img[low_res_index, :] = images_low_res
                 
-                if args.keep_close_scan:
-                    pred_img[pred_img > 0.25] = 0
-                    images_high_res[images_high_res > 0.25] = 0 
-                # 3D Evaluation Metrics
+
                 pcd_pred = img_to_pcd(pred_img)
                 pcd_gt = img_to_pcd(images_high_res)
             
@@ -615,12 +605,11 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             total_precision += precision
             total_recall += recall
 
-    if not args.evaluate_with_specific_indices:
-        evaluation_file_path = os.path.join(args.output_dir,'results_mcdrop.txt')
-        with open(evaluation_file_path, 'w') as file:
-            json.dump(evaluation_metrics, file) 
+    evaluation_file_path = os.path.join(args.output_dir,'results_mcdrop.txt')
+    with open(evaluation_file_path, 'w') as file:
+        json.dump(evaluation_metrics, file) 
 
-        print(print(f'Dictionary saved to {evaluation_file_path}'))
+    print(print(f'Dictionary saved to {evaluation_file_path}'))
 
     avg_loss = total_loss / global_step
     if log_writer is not None:
