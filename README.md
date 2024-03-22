@@ -65,7 +65,7 @@ bash bash_scripts/tulip_upsampling_durlar.sh (DurLAR)
 ```
 
 ## Evaluation
-You can download the pretrained models from the link and use them for evaluation.
+You can download the pretrained models from the [link](https://drive.google.com/file/d/15Ty7sKOrFHhB94vLBJOKasXaz1_DCa8o/view?usp=drive_link) and use them for evaluation.
 ```
 bash bash_scripts/tulip_evaluation_kitti.sh (KITTI)
 bash bash_scripts/tulip_evaluation_carla.sh (CARLA)
