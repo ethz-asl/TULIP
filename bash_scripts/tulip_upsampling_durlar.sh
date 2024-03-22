@@ -21,14 +21,14 @@ args=(
     --patch_unmerging 
     # Dataset
     --dataset_select durlar
-    --data_path_low_res /cluster/work/riner/users/biyang/dataset/DurLAR
-    --data_path_high_res /cluster/work/riner/users/biyang/dataset/DurLAR
+    --data_path_low_res ./dataset/DurLAR
+    --data_path_high_res ./dataset/DurLAR
     # WandB Parameters
     --run_name tulip_large
-    --entity biyang
+    --entity myentity
     # --wandb_disabled
     --project_name experiment_durlar
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_4/tulip_large
+    --output_dir ./experiment/durlar/tulip_large
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --window_size 2 8

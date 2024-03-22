@@ -17,15 +17,15 @@ args=(
     # Dataset
     --dataset_select durlar
     --log_transform
-    --data_path_low_res /cluster/work/riner/users/biyang/dataset/DurLAR
-    --data_path_high_res /cluster/work/riner/users/biyang/dataset/DurLAR
+    --data_path_low_res ./dataset/DurLAR
+    --data_path_high_res ./dataset/DurLAR
     # --save_pcd
     # WandB Parameters
     --run_name tulip_base
-    --entity biyang
+    --entity myentity
     --wandb_disabled
     --project_name durlar_evaluation
-    --output_dir /cluster/work/riner/users/biyang/experiment/durlar/Upsampling_4/tulip_base
+    --output_dir ./experiment/durlar/tulip_base
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --window_size 2 8

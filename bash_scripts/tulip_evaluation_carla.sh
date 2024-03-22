@@ -11,7 +11,7 @@ args=(
     --eval
     --mc_drop
     --noise_threshold 0.03
-    --model_select tulip_large
+    --model_select tulip_base
     --pixel_shuffle
     --circular_padding
     --patch_unmerging
@@ -22,11 +22,11 @@ args=(
     --data_path_high_res /cluster/work/riner/users/biyang/dataset/Carla/
     # --save_pcd
     # WandB Parameters
-    --run_name tulip_large
+    --run_name tulip_base
     --entity biyang
     # --wandb_disabled
     --project_name carla_evaluation
-    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling2/tulip_large
+    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling2/tulip_base
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --window_size 2 8

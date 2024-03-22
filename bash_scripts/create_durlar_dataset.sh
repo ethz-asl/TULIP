@@ -7,7 +7,7 @@ module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
 
 args=(
-    --input_path /cluster/work/riner/users/biyang/dataset/DurLAR/
+    --input_path ./DurLAR/
     --output_path_name_train train
     --output_path_name_val val
     --train_data_per_frame 4

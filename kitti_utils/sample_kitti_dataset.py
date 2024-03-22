@@ -88,10 +88,8 @@ def main(args):
         output_dir_name_val = os.path.join(dir_name, args.output_path_name_val)
         pathlib.Path(output_dir_name_val).mkdir(parents=True, exist_ok=True)
 
-    train_split_path = os.path.join(dir_name, "train_files.txt")
-    val_split_path = os.path.join(dir_name, "val_files.txt")
-
-
+    train_split_path = "./kitti_utils/train_files.txt"
+    val_split_path = "./kitti_utilsval_files.txt"
 
     train_split = np.array(readlines(train_split_path), dtype = str)
     val_split = np.array(readlines(val_split_path), dtype = str)

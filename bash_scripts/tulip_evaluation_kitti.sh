@@ -17,15 +17,15 @@ args=(
     --log_transform
     # Dataset
     --dataset_select kitti
-    --data_path_low_res /cluster/work/riner/users/biyang/dataset/KITTI/
-    --data_path_high_res /cluster/work/riner/users/biyang/dataset/KITTI/
+    --data_path_low_res ./dataset/KITTI/
+    --data_path_high_res ./dataset/KITTI/
     # --save_pcd
     # WandB Parameters
     --run_name tulip_large
-    --entity biyang
+    --entity myentity
     # --wandb_disabled
     --project_name kitti_evaluation
-    --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling3/tulip_large
+    --output_dir ./experiment/kitti/tulip_large
     --img_size_low_res 16 1024
     --img_size_high_res 64 1024
     --window_size 2 8

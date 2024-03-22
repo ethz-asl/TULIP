@@ -296,8 +296,8 @@ def build_kitti_upsampling_dataset(is_train, args):
     transform_low_res = transforms.Compose(t_low_res)
     transform_high_res = transforms.Compose(t_high_res)        
 
-    root_low_res = os.path.join(args.data_path_low_res, 'train20000' if is_train else 'val')
-    root_high_res = os.path.join(args.data_path_high_res, 'train20000' if is_train else 'val')
+    root_low_res = os.path.join(args.data_path_low_res, 'train' if is_train else 'val')
+    root_high_res = os.path.join(args.data_path_high_res, 'train' if is_train else 'val')
 
 
     dataset_low_res = RangeMapFolder(root_low_res, transform = transform_low_res, loader= npy_loader, class_dir = False)

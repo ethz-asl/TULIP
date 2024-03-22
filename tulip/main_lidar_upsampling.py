@@ -20,9 +20,6 @@ import torchvision.datasets as datasets
 from util.datasets import generate_dataset
 from util.pos_embed import interpolate_pos_embed
 
-import timm
-
-# assert timm.__version__ == "0.3.2"  # version check
 import timm.optim.optim_factory as optim_factory
 from timm.models.layers import trunc_normal_
 
@@ -32,8 +29,6 @@ from util.misc import NativeScalerWithGradNormCount as NativeScaler
 import model.tulip as tulip
 from engine_upsampling import train_one_epoch, evaluate, get_latest_checkpoint, MCdrop
 import wandb
-
-# from torch_ema import ExponentialMovingAverage
 
 
 def get_args_parser():
