@@ -79,7 +79,6 @@ def train_one_epoch(model: torch.nn.Module,
                             samples_high_res, 
                             eval = False)
 
-        # loss = criterion(pred, samples_high_res.contiguous())
         total_loss_value = total_loss.item()
         pixel_loss_value = pixel_loss.item()
 
@@ -126,11 +125,9 @@ def train_one_epoch(model: torch.nn.Module,
 
 @torch.no_grad()
 def evaluate(data_loader, model, device, log_writer, args=None):
-    # This criterion is also for classfiction, we can directly use the loss forward computation in mae model
-    # criterion = torch.nn.CrossEntropyLoss()
+  
+    '''Evaluation without Monte Carlo Dropout'''
 
-    # metric_logger = misc.MetricLogger(delimiter="  ")
-    header = 'Test:'
     h_low_res = tuple(args.img_size_low_res)[0]
     h_high_res = tuple(args.img_size_high_res)[0]
 
@@ -171,16 +168,13 @@ def evaluate(data_loader, model, device, log_writer, args=None):
         with torch.cuda.amp.autocast():
             pred_img, _, _= model(images_low_res, 
                                     images_high_res, 
-                                    eval = True) # --> tuple(loss, pred_imgs, masked_imgs)
+                                    eval = True)
 
             
         if log_writer is not None:
-            # Visulize less for carla dataset
 
             # Preprocess the image
             if args.log_transform:
-                # print("Logarithmus Transform back the prediction and ground-truth images")
-                total_loss_one_input = (pred_img - images_high_res).abs().mean()
                 pred_img = torch.expm1(pred_img)
                 images_high_res = torch.expm1(images_high_res)
                 images_low_res = torch.expm1(images_low_res)
@@ -256,8 +250,8 @@ def evaluate(data_loader, model, device, log_writer, args=None):
                     images_high_res[images_high_res > 0.25] = 0 
 
                 # 3D Evaluation Metrics
-                pcd_pred = img_to_pcd(pred_img, maximum_range= 120)
-                pcd_gt = img_to_pcd(images_high_res, maximum_range = 120)
+                pcd_pred = img_to_pcd_durlar(pred_img, maximum_range= 120)
+                pcd_gt = img_to_pcd_durlar(images_high_res, maximum_range = 120)
             else:
                 raise NotImplementedError(f"Cannot find the dataset: {args.dataset_select}")
 
@@ -297,16 +291,13 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 
                 images_high_res = scalarMap.to_rgba(images_high_res)[..., :3]
                 pred_img = scalarMap.to_rgba(pred_img)[..., :3]
-                # vis_grid = make_grid(torch.cat([images, pred_img, masked_img], dim = 0), nrow=1)
                 vis_grid = make_grid([torch.Tensor(images_high_res).permute(2, 0, 1), 
                                     torch.Tensor(pred_img).permute(2, 0, 1),
                                     torch.Tensor(loss_map_normalized).permute(2, 0, 1)], nrow=1)
-                if args.log_transform or args.depth_scale_loss:
-                    log_writer.add_scalar('Test/logtransform_mse_all', total_loss_one_input.item(), local_step)
                 log_writer.add_image('gt - pred', vis_grid, local_step)
-                log_writer.add_scalar('Test/mse_all', pixel_loss_one_input.item(), local_step)
+                log_writer.add_scalar('Test/mae_all', pixel_loss_one_input.item(), local_step)
 
-                log_writer.add_scalar('Test/mse_low_res', loss_low_res_part, local_step)
+                log_writer.add_scalar('Test/mae_low_res', loss_low_res_part, local_step)
                 log_writer.add_scalar('Test/chamfer_dist', chamfer_dist, local_step)
                 log_writer.add_scalar('Test/iou', iou, local_step)
                 log_writer.add_scalar('Test/precision', precision, local_step)
@@ -369,8 +360,8 @@ def evaluate(data_loader, model, device, log_writer, args=None):
 # TODO: MC Drop
 @torch.no_grad()
 def MCdrop(data_loader, model, device, log_writer, args=None):
-    # This criterion is also for classfiction, we can directly use the loss forward computation in mae model
-    # criterion = torch.nn.CrossEntropyLoss()
+    '''Evaluation without Monte Carlo Dropout'''
+
     iteration = args.num_mcdropout_iterations
     iteration_batch = 8
     noise_threshold = args.noise_threshold
@@ -437,7 +428,6 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
         if log_writer is not None:
 
             if args.log_transform:
-                total_loss_one_input = (pred_img - images_high_res).abs().mean()
                 pred_img = torch.expm1(pred_img)
                 images_high_res = torch.expm1(images_high_res)
                 images_low_res = torch.expm1(images_low_res)
@@ -516,8 +506,8 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                 pred_img[low_res_index, :] = images_low_res
                 
 
-                pcd_pred = img_to_pcd(pred_img)
-                pcd_gt = img_to_pcd(images_high_res)
+                pcd_pred = img_to_pcd_durlar(pred_img)
+                pcd_gt = img_to_pcd_durlar(images_high_res)
             
             else:
                 raise NotImplementedError(f"Cannot find the dataset: {args.dataset_select}")
@@ -542,7 +532,6 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
             evaluation_metrics['precision'].append(precision)
             evaluation_metrics['recall'].append(recall)
             evaluation_metrics['f1'].append(f1)
-
             
             if global_step % 100 == 0 or global_step == 1:
                 loss_map_normalized = (loss_map - loss_map.min()) / (loss_map.max() - loss_map.min() + 1e-8)
@@ -556,12 +545,10 @@ def MCdrop(data_loader, model, device, log_writer, args=None):
                                     torch.Tensor(pred_img).permute(2, 0, 1),
                                     torch.Tensor(loss_map_normalized).permute(2, 0, 1)], nrow=1)
 
-                if args.log_transform or args.depth_scale_loss:
-                    log_writer.add_scalar('Test/logtransform_mse_all', total_loss_one_input.item(), local_step)
                 log_writer.add_image('gt - pred', vis_grid, local_step)
-                log_writer.add_scalar('Test/mse_all', pixel_loss_one_input.item(), local_step)
+                log_writer.add_scalar('Test/mae_all', pixel_loss_one_input.item(), local_step)
 
-                log_writer.add_scalar('Test/mse_low_res', loss_low_res_part, local_step)
+                log_writer.add_scalar('Test/mae_low_res', loss_low_res_part, local_step)
                 log_writer.add_scalar('Test/chamfer_dist', chamfer_dist, local_step)
                 log_writer.add_scalar('Test/iou', iou, local_step)
                 log_writer.add_scalar('Test/precision', precision, local_step)

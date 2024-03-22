@@ -161,10 +161,10 @@ class PairDataset(torch.utils.data.Dataset):
         return min(len(d) for d in self.datasets)
     
 
-def npy_loader_durlar(path: str) -> np.ndarray:
-    with open(path, "rb") as f:
-        range_map = np.load(f)
-    return range_map.astype(np.float32)
+# def npy_loader(path: str) -> np.ndarray:
+#     with open(path, "rb") as f:
+#         range_map = np.load(f)
+#     return range_map.astype(np.float32)
 
 def bin_loader(path: str) -> np.ndarray:
     with open(path, "rb") as f:
@@ -172,7 +172,7 @@ def bin_loader(path: str) -> np.ndarray:
         # range_map = range_intensity_map[..., 0]
     return range_intensity_map
 
-def npy_loader_kitti(path: str) -> np.ndarray:
+def npy_loader(path: str) -> np.ndarray:
     with open(path, "rb") as f:
         range_intensity_map = np.load(f)
         range_map = range_intensity_map[..., 0]
@@ -199,7 +199,7 @@ class RangeMapFolder(DatasetFolder):
         root: str,
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
-        loader: Callable[[str], Any] = npy_loader_kitti,
+        loader: Callable[[str], Any] = npy_loader,
         is_valid_file: Optional[Callable[[str], bool]] = None,
         class_dir: bool = True,
     ):
@@ -246,8 +246,8 @@ def build_durlar_upsampling_dataset(is_train, args):
     input_size = tuple(args.img_size_low_res)
     output_size = tuple(args.img_size_high_res)
 
-    t_low_res = [transforms.ToTensor(), FilterInvalidPixels(min_range = 0.3/120, max_range = 1)]
-    t_high_res = [transforms.ToTensor(), FilterInvalidPixels(min_range = 0.3/120, max_range = 1)]
+    t_low_res = [transforms.ToTensor(), ScaleTensor(1/120), FilterInvalidPixels(min_range = 0.3/120, max_range = 1)]
+    t_high_res = [transforms.ToTensor(), ScaleTensor(1/120), FilterInvalidPixels(min_range = 0.3/120, max_range = 1)]
 
     t_low_res.append(DownsampleTensor(h_high_res=output_size[0], downsample_factor=output_size[0]//input_size[0]))
 
@@ -266,13 +266,10 @@ def build_durlar_upsampling_dataset(is_train, args):
     transform_high_res = transforms.Compose(t_high_res)
 
     root_low_res = os.path.join(args.data_path_low_res, 'train' if is_train else 'val')
-    root_low_res = os.path.join(root_low_res, 'depth')
-
     root_high_res = os.path.join(args.data_path_high_res, 'train' if is_train else 'val')
-    root_high_res = os.path.join(root_high_res, 'depth')
 
-    dataset_low_res = RangeMapFolder(root_low_res, transform = transform_low_res, loader= npy_loader_durlar)
-    dataset_high_res = RangeMapFolder(root_high_res, transform = transform_high_res, loader =  npy_loader_durlar)
+    dataset_low_res = RangeMapFolder(root_low_res, transform = transform_low_res, loader= npy_loader, class_dir=False)
+    dataset_high_res = RangeMapFolder(root_high_res, transform = transform_high_res, loader =  npy_loader, class_dir = False)
 
 
     assert len(dataset_high_res) == len(dataset_low_res)
@@ -303,8 +300,8 @@ def build_kitti_upsampling_dataset(is_train, args):
     root_high_res = os.path.join(args.data_path_high_res, 'train20000' if is_train else 'val')
 
 
-    dataset_low_res = RangeMapFolder(root_low_res, transform = transform_low_res, loader= npy_loader_kitti, class_dir = False)
-    dataset_high_res = RangeMapFolder(root_high_res, transform = transform_high_res, loader = npy_loader_kitti, class_dir = False)
+    dataset_low_res = RangeMapFolder(root_low_res, transform = transform_low_res, loader= npy_loader, class_dir = False)
+    dataset_high_res = RangeMapFolder(root_high_res, transform = transform_high_res, loader = npy_loader, class_dir = False)
 
     assert len(dataset_high_res) == len(dataset_low_res)
 

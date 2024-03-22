@@ -36,7 +36,7 @@ def px_to_xyz(px, p_range, cols):
     return [x_sensor, y_sensor, z_sensor]
 
 
-def main(scan, rows = 128, cols = 2048):
+def pcd_to_img(scan, rows = 128, cols = 2048):
     img_data = np.zeros((rows,cols))
     img_range = np.zeros((rows,cols))
     # max_diff = -0.1

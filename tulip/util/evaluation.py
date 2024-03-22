@@ -1,11 +1,7 @@
-import os
 import numpy as np
-import argparse
 import math
-import cv2
 import torch
 from chamfer_distance import ChamferDistance as chamfer_dist
-import numba
 # from pyemd import emd
 
 offset_lut = np.array([48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0,48,32,16,0])
@@ -19,25 +15,6 @@ origin_offset = 0.015806
 lidar_to_sensor_z_offset = 0.03618
 
 angle_off = math.pi * 4.2285/180.
-
-# def idx_from_px(px, cols):
-#     vv = (int(px[0]) + cols - offset_lut[int(px[1])]) % cols
-#     idx = px[1] * cols + vv
-#     return idx
-
-# def px_to_xyz_2(px, p_range, cols):
-#     u = (cols + px[0]) % cols
-#     azimuth_radians = math.pi * 2.0 / cols 
-#     encoder = 2.0 * math.pi - (u * azimuth_radians) 
-#     azimuth = angle_off
-#     elevation = math.pi * elevation_lut[int(px[1])] / 180.
-#     x_lidar = (p_range - origin_offset) * math.cos(encoder+azimuth)*math.cos(elevation) + origin_offset*math.cos(encoder)
-#     y_lidar = (p_range - origin_offset) * math.sin(encoder+azimuth)*math.cos(elevation) + origin_offset*math.sin(encoder)
-#     z_lidar = (p_range - origin_offset) * math.sin(elevation) 
-#     x_sensor = -x_lidar
-#     y_sensor = -y_lidar
-#     z_sensor = z_lidar + lidar_to_sensor_z_offset
-#     return np.array([x_sensor, y_sensor, z_sensor])
 
 def idx_from_px(px, cols):
     vv = (px[:,0].astype(int) + cols - offset_lut[px[:, 1].astype(int)]) % cols
@@ -60,7 +37,7 @@ def px_to_xyz(px, p_range, cols): # px: (u, v) size = (H*W,2)
     z_sensor = z_lidar + lidar_to_sensor_z_offset
     return np.stack((x_sensor, y_sensor, z_sensor), axis=-1)
 
-def img_to_pcd(img_range, maximum_range = 120):  # 1 x H x W cuda torch
+def img_to_pcd_durlar(img_range, maximum_range = 120):  # 1 x H x W cuda torch
     rows, cols = img_range.shape[:2]
     uu, vv = np.meshgrid(np.arange(cols), np.arange(rows), indexing="ij")
     uvs = np.stack((uu, vv), axis=-1).reshape(-1, 2)
@@ -72,27 +49,6 @@ def img_to_pcd(img_range, maximum_range = 120):  # 1 x H x W cuda torch
     points[indices, :] = points_all
     return points
 
-# def img_to_pcd(img_range, maximum_range = 120):  # 1 x H x W cuda torch
-#     rows, cols = img_range.shape[:2]
-
-#     points = np.zeros((rows*cols, 3))
-#     for u in range(cols):
-#         for v in range(rows):
-
-#             idx = idx_from_px((u, v), cols)
-#             range_px = img_range[v, u] * maximum_range
-#             if range_px > maximum_range:
-#                 print(v,u, range_px, img_range[v, u])
-#             if range_px < 0.3:
-#                 continue
-#             else:
-#                 point_repro = px_to_xyz((u,v), range_px, cols)
-#                 points[idx, :] = point_repro
-
-
-#     return points
-
-# Maybe it also can be used for carla200000, have to set the different parameter
 def img_to_pcd_kitti(img_range, maximum_range = 120, low_res = False, intensity = None):
     if low_res:
         image_rows = 16
@@ -108,9 +64,6 @@ def img_to_pcd_kitti(img_range, maximum_range = 120, low_res = False, intensity 
     for i in range(image_rows):
         rowList = np.append(rowList, np.ones(image_cols)*i)
         colList = np.append(colList, np.arange(image_cols))
-
-
-    # uvs = np.stack((uu, vv), axis=-1).reshape(-1, 2)
 
 
     verticalAngle = np.float32(rowList * ang_res_y) - ang_start_y
@@ -161,23 +114,6 @@ def img_to_pcd_carla(img_range, maximum_range = 80):
     points = np.stack((x, y, z), axis=-1)
 
     return points
-
-
-
-
-# Durlar Dataset pixel in range map -> index in 
-# def idx_from_px(px, cols):
-#     vv = (int(px[0]) + cols - offset_lut[int(px[1])]) % cols
-#     idx = px[1] * cols + vv
-#     return idx
-
-# def px_from_idx(idx, cols):
-#     vv = idx % cols
-#     y = math.ceil((idx-vv) / cols)
-#     x = vv + offset_lut[y]
-#     if x >= cols:
-#         x = x - cols
-#     return (x, y)
 
 
 def mean_absolute_error(pred_img, gt_img):
@@ -242,49 +178,3 @@ def inverse_huber_loss(output, target):
     absdiff = torch.abs(output-target)
     C = 0.2*torch.max(absdiff).item()
     return torch.where(absdiff < C, absdiff,(absdiff*absdiff+C*C)/(2*C))
-
-if __name__ == "__main__":
-    point1 = np.random.uniform(0, 1, (100, 3))
-    point2 = np.random.uniform(0, 1, (100, 3))
-
-    point3 = point1.copy()
-
-    point3[0, 0] += 0.1
-
-    cd_1 = chamfer_distance(point1, point2)
-    cd_2 = chamfer_distance_2(point1, point2)
-
-
-
-    print(cd_1, cd_2)
-
-
-    # point4 = np.array([[0.5, 1, 1],
-    #                    [1, 1, 1],
-    #                    [1, 1, 1.5]])
-    
-    # point5 = np.array([[1, 1, 1],
-    #                    [1, 1, 1],
-    #                    [1, 1, 1]])
-    
-
-    min_coord = np.min(np.vstack((point1, point3)), axis=0)
-    max_coord = np.max(np.vstack((point1, point3)), axis=0)
-    grid_size = 0.1
-    # Voxelize the ground truth and prediction point clouds
-    voxel_grid_predicted = voxelize_point_cloud(point1, grid_size, min_coord, max_coord)
-    voxel_grid_ground_truth = voxelize_point_cloud(point3, grid_size, min_coord, max_coord)
-
-    print(voxel_grid_ground_truth.shape, voxel_grid_predicted.shape)
-
-    # Calculate metrics
-    iou, precision, recall = calculate_metrics(voxel_grid_predicted, voxel_grid_ground_truth)
-
-    
-
-    # grids_pred = create_grid(point4, grid_length=1)
-    # grids_gt = create_grid(point5, grid_length=1)
-    # grids = create_grid_around_point(point4, spacing=0.1)
-
-
-    print(iou, precision, recall)

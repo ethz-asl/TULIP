@@ -11,22 +11,22 @@ args=(
     --eval
     --mc_drop
     --noise_threshold 0.03
-    --model_select swin_unet
+    --model_select tulip_large
     --pixel_shuffle
     --circular_padding
-    --pixel_shuffle_expanding
+    --patch_unmerging
     # Dataset
     --dataset_select carla
     --log_transform
     --data_path_low_res /cluster/work/riner/users/biyang/dataset/Carla/
     --data_path_high_res /cluster/work/riner/users/biyang/dataset/Carla/
-    --save_pcd
+    # --save_pcd
     # WandB Parameters
-    --run_name test
+    --run_name tulip_large
     --entity biyang
     # --wandb_disabled
     --project_name carla_evaluation
-    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling/tulip_16x1024_256x4096/
+    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling2/tulip_large
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --window_size 2 8
@@ -34,6 +34,4 @@ args=(
     --in_chans 1
     )
 
-# python mae/main_ouster.py "${args[@]}"   
-#python -m torch.distributed.launch --nproc_per_node=2 mae/main_ouster.py "${args[@]}"
 torchrun --nproc_per_node=1 tulip/main_lidar_upsampling.py "${args[@]}"

@@ -10,10 +10,10 @@ args=(
     --eval
     --mc_drop
     --noise_threshold 0.03
-    --model_select swin_unet
+    --model_select tulip_large
     --pixel_shuffle
     --circular_padding
-    --pixel_shuffle_expanding
+    --patch_unmerging
     --log_transform
     # Dataset
     --dataset_select kitti
@@ -21,12 +21,11 @@ args=(
     --data_path_high_res /cluster/work/riner/users/biyang/dataset/KITTI/
     # --save_pcd
     # WandB Parameters
-    --run_name Ours-L:evaluation_within_30_meters
+    --run_name tulip_large
     --entity biyang
-    --wandb_disabled
+    # --wandb_disabled
     --project_name kitti_evaluation
-    #
-    --output_dir /cluster/work/riner/users/biyang/pretrained_weights/tulip_kitti.pth
+    --output_dir /cluster/work/riner/users/biyang/experiment/kitti/Upsampling3/tulip_large
     --img_size_low_res 16 1024
     --img_size_high_res 64 1024
     --window_size 2 8

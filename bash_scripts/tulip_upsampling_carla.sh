@@ -4,8 +4,6 @@ source $HOME/miniconda3/bin/activate
 conda activate plr
 module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
 
-
-
 args=(
     --batch_size 8
     --epochs 600
@@ -36,6 +34,5 @@ args=(
     --in_chans 1
     )
 
-# python mae/main_ouster.py "${args[@]}"   
-#python -m torch.distributed.launch --nproc_per_node=2 mae/main_ouster.py "${args[@]}"
+# real batch size in training = batch_size * nproc_per_node
 torchrun --nproc_per_node=4 tulip/main_lidar_upsampling.py "${args[@]}"

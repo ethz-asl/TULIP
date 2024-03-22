@@ -242,20 +242,14 @@ def main(args):
             args.output_dir = os.path.dirname(args.output_dir)
         else:
             get_latest_checkpoint(args)
-        # checkpoint = torch.load(args.resume, map_location='cpu')
-        # model.load_state_dict(checkpoint)
+
         misc.load_model(
                 args=args, model_without_ddp=model, optimizer=None,
                 loss_scaler=None)
         model.to(device)
-
-        # pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        # print(f"There are totally {pytorch_total_params} parameters in the model")
-
-        # exit(0)
         
         print("Start Evaluation")
-        if args.mc_drop and not args.evaluate_with_different_ranges:
+        if args.mc_drop:
             print("Evaluation with Monte Carlo Dropout")
             MCdrop(data_loader_val, model, device, log_writer = log_writer, args = args)
         else:
@@ -334,10 +328,7 @@ def main(args):
 if __name__ == '__main__':
     args = get_args_parser()
     args = args.parse_args()
-    # if args.img_size is not None:
-    #     args.img_size = tuple(args.img_size)
 
-    # Pre-Check
     if args.output_dir and not args.eval:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)

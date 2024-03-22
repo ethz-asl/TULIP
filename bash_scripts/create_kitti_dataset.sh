@@ -10,8 +10,9 @@ args=(
     --num_data_train 20000
     --num_data_val 2500
     --output_path_name_train train20000
-    --input_path /cluster/work/riner/users/biyang/dataset/KITTI/
-    # --create_val
+    --output_path_name_val val
+    --input_path /cluster/work/riner/users/biyang/dataset/KITTI/kitti_depth/kitti_raw/
+    --create_val
     )
 
-python /cluster/work/riner/users/biyang/kitti_utils/sample_dataset.py "${args[@]}"
+python /cluster/work/riner/users/biyang/kitti_utils/sample_kitti_dataset.py "${args[@]}"

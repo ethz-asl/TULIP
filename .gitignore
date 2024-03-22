@@ -30,6 +30,6 @@ sota_reproduce/
 mae/util/__pycache__/*
 downstream_tasks/
 *.gif
-
+archive/
 
 
