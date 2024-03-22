@@ -81,5 +81,3 @@ bash bash_scripts/tulip_evaluation_durlar.sh (DurLAR)
   year={2023}
 }
 ```
-
-## License and Acknowledgement
