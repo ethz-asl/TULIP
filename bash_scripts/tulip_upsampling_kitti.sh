@@ -1,10 +1,5 @@
 #!/bin/bash
 
-source $HOME/miniconda3/bin/activate
-conda activate plr
-module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
-
-
 
 args=(
     --batch_size 8
@@ -14,7 +9,7 @@ args=(
     --weight_decay 0.01
     --warmup_epochs 60
     # Model parameters
-    --model_select tulip_large
+    --model_select tulip_base
     --pixel_shuffle # improve
     --circular_padding # improve
     --log_transform # improve
@@ -24,11 +19,11 @@ args=(
     --data_path_low_res ./dataset/KITTI/
     --data_path_high_res ./dataset/KITTI/
     # WandB Parameters
-    --run_name tulip_large
+    --run_name tulip_base
     --entity myentity
     # --wandb_disabled
     --project_name experiment_kitti
-    --output_dir ./experiment/kitti/tulip_large
+    --output_dir ./experiment/kitti/tulip_base
     --img_size_low_res 16 1024
     --img_size_high_res 64 1024
     --window_size 2 8

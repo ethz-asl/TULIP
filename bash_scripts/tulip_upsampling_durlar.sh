@@ -1,11 +1,5 @@
 #!/bin/bash
 
-source $HOME/miniconda3/bin/activate
-conda activate plr
-module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
-
-
-
 args=(
     --batch_size 8
     --epochs 600
@@ -14,7 +8,7 @@ args=(
     # --save_frequency 10
     --weight_decay 0.01
     --warmup_epochs 60
-    --model_select tulip_large
+    --model_select tulip_base
     --pixel_shuffle 
     --circular_padding 
     --log_transform 
@@ -24,11 +18,11 @@ args=(
     --data_path_low_res ./dataset/DurLAR
     --data_path_high_res ./dataset/DurLAR
     # WandB Parameters
-    --run_name tulip_large
+    --run_name tulip_base
     --entity myentity
     # --wandb_disabled
     --project_name experiment_durlar
-    --output_dir ./experiment/durlar/tulip_large
+    --output_dir ./experiment/durlar/tulip_base
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --window_size 2 8

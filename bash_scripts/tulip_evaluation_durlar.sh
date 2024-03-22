@@ -1,11 +1,5 @@
 #!/bin/bash
 
-source $HOME/miniconda3/bin/activate
-conda activate plr
-module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
-
-
-
 args=(
     --eval
     --mc_drop
@@ -23,9 +17,9 @@ args=(
     # WandB Parameters
     --run_name tulip_base
     --entity myentity
-    --wandb_disabled
+    # --wandb_disabled
     --project_name durlar_evaluation
-    --output_dir ./experiment/durlar/tulip_base
+    --output_dir ./trained/tulip_durlar.pth
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --window_size 2 8

@@ -1,11 +1,5 @@
 #!/bin/bash
 
-source $HOME/miniconda3/bin/activate
-conda activate plr
-module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
-
-
-
 args=(
     --input_path ./DurLAR/
     --output_path_name_train train

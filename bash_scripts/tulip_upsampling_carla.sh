@@ -1,9 +1,5 @@
 #!/bin/bash
 
-source $HOME/miniconda3/bin/activate
-conda activate plr
-module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
-
 args=(
     --batch_size 8
     --epochs 600
@@ -18,14 +14,14 @@ args=(
     --patch_unmerging # improve
     # Dataset
     --dataset_select carla
-    --data_path_low_res /cluster/work/riner/users/biyang/dataset/Carla/
+    --data_path_low_res ./dataset/Carla/
     --data_path_high_res /cluster/work/riner/users/biyang/dataset/Carla/
     # WandB Parameters
     --run_name tulip_large
-    --entity biyang
+    --entity myentity
     # --wandb_disabled
     --project_name experiment_carla
-    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling2/tulip_large
+    --output_dir ./experiment/carla/tulip_large
     # For swim_mae, we have to give the image size that could be split in to 4 windows and then 16x16 patchs
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048

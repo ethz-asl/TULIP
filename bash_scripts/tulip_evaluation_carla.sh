@@ -1,11 +1,5 @@
 #!/bin/bash
 
-source $HOME/miniconda3/bin/activate
-conda activate plr
-module load eth_proxy cuda/11.3.1 gcc/8.2.0 ninja
-
-
-
 args=(
 
     --eval
@@ -18,15 +12,15 @@ args=(
     # Dataset
     --dataset_select carla
     --log_transform
-    --data_path_low_res /cluster/work/riner/users/biyang/dataset/Carla/
-    --data_path_high_res /cluster/work/riner/users/biyang/dataset/Carla/
+    --data_path_low_res ./dataset/Carla/
+    --data_path_high_res ./dataset/Carla/
     # --save_pcd
     # WandB Parameters
     --run_name tulip_base
-    --entity biyang
+    --entity myentity
     # --wandb_disabled
     --project_name carla_evaluation
-    --output_dir /cluster/work/riner/users/biyang/experiment/carla/Upsampling2/tulip_base
+    --output_dir ./trained/tulip_carla.pth
     --img_size_low_res 32 2048
     --img_size_high_res 128 2048
     --window_size 2 8

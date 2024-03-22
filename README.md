@@ -56,9 +56,21 @@ dataset
        │   ...
 ```
 
-## 
+## Training
+We provide some bash files for running the experiment quickly with default settings. 
+```
+bash bash_scripts/tulip_upsampling_kitti.sh (KITTI)
+bash bash_scripts/tulip_upsampling_carla.sh (CARLA)
+bash bash_scripts/tulip_upsampling_durlar.sh (DurLAR)
+```
 
-
+## Evaluation
+You can download the pretrained models from the link and use them for evaluation.
+```
+bash bash_scripts/tulip_evaluation_kitti.sh (KITTI)
+bash bash_scripts/tulip_evaluation_carla.sh (CARLA)
+bash bash_scripts/tulip_evaluation_durlar.sh (DurLAR)
+```
 
 ## Citation
 ```
