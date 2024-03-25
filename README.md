@@ -28,6 +28,7 @@ Then, install the dependencies in the environment:
 pip install -r requirements.txt
 pip install git+'https://github.com/otaheri/chamfer_distance'  # need access to gpu for compilation
 ```
+You can refer to more details about chamfer distance package from https://github.com/otaheri/chamfer_distance
 
 ## Data Preparation
 We have evaluated our method on three different datasets and they are all open source datasets:
