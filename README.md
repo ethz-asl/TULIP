@@ -1,15 +1,10 @@
 # TULIP: Transformer for Upsampling of LiDAR Point Cloud
-This is an official implementation of the paper [TULIP: Transformer for Upsampling of LiDAR Point Cloud](https://arxiv.org/abs/2312.06733): A framework for LiDAR upsampling using Swin Transformer.
+This is an official implementation of the paper [TULIP: Transformer for Upsampling of LiDAR Point Cloud](https://arxiv.org/abs/2312.06733): A framework for LiDAR upsampling using Swin Transformer. (The paper was accepted by CVPR2024)
 ## Demo
 The visualization is done by sampling a time-series subset from the test split
-| Method \ Dataset                                        | KITTI                     |DurLAR                                                  |CARLA               |
-| -------------------------------------------------------| ------------------------- | ------------------------------------------------------ | ------                   |
-| Low Resolution (Input)                                  | [![KITTI low resolution](http://img.youtube.com/vi/B42ZLbB1Qzs/0.jpg)](https://youtu.be/B42ZLbB1Qzs) | [![DurLAR low resolution](http://img.youtube.com/vi/Fu22sGp0bSA/0.jpg)](https://youtu.be/Fu22sGp0bSA)|[![CARLA low resolution](http://img.youtube.com/vi/W5jmReUm7Rg/0.jpg)](https://youtu.be/W5jmReUm7Rg)|
-| High Resolution (Ground-Truth)                          | [![KITTI high resolution](http://img.youtube.com/vi/xibLhAfs6nA/0.jpg)](https://youtu.be/xibLhAfs6nA)| [![DurLAR high resolution](http://img.youtube.com/vi/YS4TR6_Kcks/0.jpg)](https://youtu.be/YS4TR6_Kcks)|[![CARLA high resolution](http://img.youtube.com/vi/7GIyPLIMHdc/0.jpg)](https://youtu.be/7GIyPLIMHdc)|
-| Implicit LiDAR Network (ILN)                            | [![KITTI iln](http://img.youtube.com/vi/4f8JybY0pag/0.jpg)](https://youtu.be/4f8JybY0pag) | [![DurLAR iln](http://img.youtube.com/vi/79I2n3ALg80/0.jpg)](https://youtu.be/79I2n3ALg80)|[![CARLA iln](http://img.youtube.com/vi/-szKaNGgUsk/0.jpg)](https://youtu.be/-szKaNGgUsk)|
-| LiDAR Super-Resolution Network (LiDAR-SR)               | [![KITTI lidar-sr](http://img.youtube.com/vi/u0WA5pUnM6k/0.jpg)](https://youtu.be/u0WA5pUnM6k) | [![DurLAR lidar-sr](http://img.youtube.com/vi/SITqHSFM8f4/0.jpg)](https://youtu.be/SITqHSFM8f4)|[![CARLA lidar-sr](http://img.youtube.com/vi/jX-peCiEv6o/0.jpg)](https://youtu.be/jX-peCiEv6o)|
-| ***TULIP***                                             | [![KITTI tulip](http://img.youtube.com/vi/p2-m6vbMH7E/0.jpg)](https://youtu.be/p2-m6vbMH7E) | [![DurLAR tulip](http://img.youtube.com/vi/BZnNUisT70c/0.jpg)](https://youtu.be/BZnNUisT70c)|[![CARLA tulip](http://img.youtube.com/vi/eJ34lr6ZWrc/0.jpg)](https://youtu.be/eJ34lr6ZWrc)|
-| ***TULIP-L***                                           | [![KITTI tulip-l](http://img.youtube.com/vi/RvvXSdROFAo/0.jpg)](https://youtu.be/RvvXSdROFAo) | [![DurLAR tulip-l](http://img.youtube.com/vi/RGUL5Pxpz3k/0.jpg)](https://youtu.be/RGUL5Pxpz3k)|[![CARLA tulip-l](http://img.youtube.com/vi/_Qc90E9-gLU/0.jpg)](https://youtu.be/_Qc90E9-gLU)|
+| KITTI                     |DurLAR                                                  |CARLA               |
+| -------------------------------------------------------| ------------------------- | ------------------------------------------------------ |
+| [![KITTI](http://img.youtube.com/vi/652crBsy6K4/0.jpg)](https://youtu.be/652crBsy6K4) | [![DurLAR](http://img.youtube.com/vi/c0fOlVC-I5Y/0.jpg)](https://youtu.be/c0fOlVC-I5Y)|[![CARLA](http://img.youtube.com/vi/gQ3jd9Z80vo/0.jpg)](https://youtu.be/gQ3jd9Z80vo)|
 
 ## Installation
 Our work is implemented with the following environmental setups:
