@@ -1,5 +1,5 @@
 # TULIP: Transformer for Upsampling of LiDAR Point Cloud
-This is an official implementation of the paper [TULIP: Transformer for Upsampling of LiDAR Point Cloud](https://arxiv.org/abs/2312.06733): A framework for LiDAR upsampling using Swin Transformer. (The paper was accepted by CVPR2024)
+This is an official implementation of the paper [TULIP: Transformer for Upsampling of LiDAR Point Cloud](https://arxiv.org/abs/2312.06733): A framework for LiDAR upsampling using Swin Transformer. (The paper is accepted by CVPR2024)
 ## Demo
 The visualization is done by sampling a time-series subset from the test split
 | KITTI                     |DurLAR                                                  |CARLA               |
