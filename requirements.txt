@@ -12,3 +12,5 @@ tqdm
 scipy
 wandb
 scikit-learn
+timm
+tensorboard
