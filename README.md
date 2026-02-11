@@ -27,7 +27,7 @@ You can refer to more details about chamfer distance package from https://github
 
 ## Data Preparation
 We have evaluated our method on three different datasets and they are all open source datasets:
-* KITTI Raw Dataset: https://www.cvlibs.net/datasets/kitti/index.php 
+* KITTI Raw Dataset: https://s3.eu-central-1.amazonaws.com/avg-kitti/data_odometry_velodyne.zip (Alternatively, you can download the raw data from SemanticKITTI homepage https://semantic-kitti.org/)
 * CARLA (collected from CARLA Simulator): https://github.com/PinocchioYS/iln (We use the same dataset as ILN)
 * DurLAR: https://github.com/l1997i/DurLAR
 

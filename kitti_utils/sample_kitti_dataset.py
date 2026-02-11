@@ -13,7 +13,7 @@ def read_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_data_train', type=int, default=21000)
     parser.add_argument('--num_data_val', type=int, default=2500)
-    parser.add_argument("--input_path", type=str , default="/cluster/work/riner/users/biyang/dataset/KITTI/")
+    parser.add_argument("--input_path", type=str , default="./dataset/")
     parser.add_argument("--output_path_name_train", type = str, default = "kitti_train")
     parser.add_argument("--output_path_name_val", type = str, default = "kitti_val")
     parser.add_argument("--create_val", action='store_true', default=False)
@@ -89,7 +89,7 @@ def main(args):
         pathlib.Path(output_dir_name_val).mkdir(parents=True, exist_ok=True)
 
     train_split_path = "./kitti_utils/train_files.txt"
-    val_split_path = "./kitti_utilsval_files.txt"
+    val_split_path = "./kitti_utils/val_files.txt"
 
     train_split = np.array(readlines(train_split_path), dtype = str)
     val_split = np.array(readlines(val_split_path), dtype = str)
@@ -97,44 +97,17 @@ def main(args):
     train_data = []
     val_data = []
 
-    # If the required data number is lower than the total number of scan, then sample the scan
-    if num_data_train < len(train_split):
-        train_split = np.random.choice(train_split, num_data_train, replace=False)
-        for train_folder in train_split:
-            sample_one_train_data = np.random.choice(np.array(glob(os.path.join(dir_name, train_folder, "velodyne_points/data/*.bin"))), 1, replace=False)
-            train_data.append(sample_one_train_data[0])
-
-    # If the required data number is higher than the total number of scan
-    else:
-        sample_data_per_scan = num_data_train // len(train_split) + 1
-        for train_folder in train_split:
-            sample_one_train_data = np.random.choice(np.array(glob(os.path.join(dir_name, train_folder, "velodyne_points/data/*.bin"))), sample_data_per_scan, replace=False)
-            train_data += list(sample_one_train_data)
-
-        random.shuffle(train_data)
-        train_data = train_data[:num_data_train]
-        
-        
-    assert len(train_data) == num_data_train, "The number of training data is not correct"  
-
+    assert num_data_train <= len(train_split), "The number of training data is higher than the total number of scan"
+    train_split = np.random.choice(train_split, num_data_train, replace=False)
+    for train_folder in train_split:
+        # sample_one_train_data = np.random.choice(np.array(glob(os.path.join(dir_name, train_folder, "velodyne/*.bin"))), 1, replace=False)
+        train_data.append(os.path.join(dir_name, train_folder))
 
     if args.create_val:
-        if num_data_val < len(val_split):
-            val_split = np.random.choice(val_split, num_data_val, replace=False)
-            for val_folder in val_split:
-                sample_one_val_data = np.random.choice(np.array(glob(os.path.join(dir_name, val_folder, "velodyne_points/data/*.bin"))), 1, replace=False)
-                val_data.append(sample_one_val_data[0])
-        else:
-            sample_data_per_scan = num_data_val // len(val_split) + 1
-            for val_folder in val_split:
-                sample_one_val_data = np.random.choice(np.array(glob(os.path.join(dir_name, val_folder, "velodyne_points/data/*.bin"))), sample_data_per_scan, replace=False)
-                val_data += list(sample_one_val_data)
-            
-            random.shuffle(val_data)
-            val_data = val_data[:num_data_val]
-
-        assert len(val_data) == num_data_val, "The number of validation data is not correct"
-
+        assert num_data_val <= len(val_split), "The number of validation data is higher than the total number of scan"
+        val_split = np.random.choice(val_split, num_data_val, replace=False)
+        for val_folder in val_split:
+            val_data.append(os.path.join(dir_name, val_folder))
 
     image_rows = 64
     image_cols = 1024
